@@ -3,7 +3,7 @@ name: build
 on:
   push:
     branches: [ master ]
-    paths: ['Cargo.*', 'src/**']
+    paths: ['.github/workflows/build.yml', 'Cargo.*', 'src/**']
   pull_request:
     branches: [ master ]
 
@@ -15,7 +15,7 @@ jobs:
     name: coverage
     runs-on: ubuntu-latest
     container:
-      image: xd009642/tarpaulin:develop-nightly
+      image: xd009642/tarpaulin:develop
       options: --security-opt seccomp=unconfined
     steps:
       - name: Checkout repository
@@ -23,7 +23,7 @@ jobs:
       - name: Check for compile errors
         run: cargo check --verbose
       - name: Generate code coverage
-        run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
+        run: cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
       - name: Upload to codecov.io
         uses: codecov/codecov-action@v2
         with:
