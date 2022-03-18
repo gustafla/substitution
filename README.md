@@ -1,4 +1,4 @@
-# Data Structures and Algorithms Project - Substitution Cipher Cracking
+# Data Structures and Algorithms Project - Deciphering Substitution Ciphers
 
 [Specification (määrittelydokumentti)](doc/specification.md)
 
