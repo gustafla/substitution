@@ -3,6 +3,7 @@ name:                           coverage
 on:
   push:
     branches:                   [master]
+    paths:                      ['Cargo.toml', 'src/**']
 jobs:
   test:
     name:                       coverage
