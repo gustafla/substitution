@@ -3,7 +3,7 @@ name: build
 on:
   push:
     branches: [ master ]
-    paths: ['Cargo.toml', 'src/**']
+    paths: ['Cargo.*', 'src/**']
   pull_request:
     branches: [ master ]
 
@@ -11,13 +11,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  test:
+    name: coverage
     runs-on: ubuntu-latest
-
+    container:
+      image: xd009642/tarpaulin:develop-nightly
+      options: --security-opt seccomp=unconfined
     steps:
-    - uses: actions/checkout@v2
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Check for compile errors
+        run: cargo check --verbose
+      - name: Generate code coverage
+        run: cargo +nightly tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
+      - name: Upload to codecov.io
+        uses: codecov/codecov-action@v2
+        with:
+          # token:                ${{secrets.CODECOV_TOKEN}} # not required for public repos
+          fail_ci_if_error:     true
