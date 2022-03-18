@@ -14,3 +14,10 @@ specification document for now.
 Next week I'm planning to get [cargo-nextest](https://nexte.st) and
 [tarpaulin](https://github.com/xd009642/tarpaulin) working in CLI and
 Github Actions.
+
+## 2022-03-18, 2h
+
+I went ahead and registered the project in labtool and set up a couple of
+tests, code coverage with tarpaulin and CI badges. Also added a CI workflow for
+creating release-mode binaries for Windows, Mac and Linux, which will come in
+handy for users who just want to try the program.
