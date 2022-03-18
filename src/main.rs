@@ -1,3 +1,7 @@
+#![deny(clippy::all)]
+#![warn(clippy::pedantic)]
+#![warn(clippy::cargo)]
+
 use clap::Parser;
 use color_eyre::Result;
 use rand::prelude::*;
@@ -107,10 +111,11 @@ fn main() -> Result<()> {
     color_eyre::install()?;
 
     let opts = Opts::parse();
-    Ok(match opts {
+    match opts {
         Opts::Decrypt(d) => d.run()?,
         Opts::Encrypt(e) => e.run()?,
-    })
+    };
+    Ok(())
 }
 
 #[cfg(test)]

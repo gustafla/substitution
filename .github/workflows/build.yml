@@ -12,7 +12,7 @@ env:
 
 jobs:
   test:
-    name: coverage
+    name: Check and test
     runs-on: ubuntu-latest
     container:
       image: xd009642/tarpaulin:develop
@@ -20,8 +20,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v2
-      - name: Check for compile errors
-        run: cargo check --verbose
+      - name: Lint for errors, correctness, style and more
+        run: cargo clippy --all-features --verbose
       - name: Generate code coverage
         run: cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
       - name: Upload to codecov.io
