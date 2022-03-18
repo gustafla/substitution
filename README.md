@@ -1,5 +1,6 @@
 # Data Structures and Algorithms Project - Deciphering Substitution Ciphers
 
+[![tests](https://github.com/gustafla/substitution/actions/workflows/tests.yml/badge.svg)](https://github.com/gustafla/substitution/actions/workflows/tests.yml)
 [![codecov](https://codecov.io/gh/gustafla/substitution/branch/master/graph/badge.svg?token=TKGUHNQHFV)](https://codecov.io/gh/gustafla/substitution)
 
 [Specification (määrittelydokumentti)](doc/specification.md)
