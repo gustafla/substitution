@@ -1,5 +1,5 @@
-use anyhow::{anyhow, Result};
 use clap::Parser;
+use color_eyre::Result;
 use rand::prelude::*;
 use std::io::Write;
 
@@ -97,12 +97,15 @@ impl Decrypt {
 }
 
 #[derive(Parser)]
+#[clap(author, version, about)]
 enum Opts {
     Encrypt(Encrypt),
     Decrypt(Decrypt),
 }
 
 fn main() -> Result<()> {
+    color_eyre::install()?;
+
     let opts = Opts::parse();
     Ok(match opts {
         Opts::Decrypt(d) => d.run()?,
