@@ -11,17 +11,22 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  test:
-    name: Check and test
+  check:
+    name: Check for errors, correctness, style and more
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Run clippy
+        run: cargo clippy --all-features --verbose
+
+  coverage:
+    name: Test and upload coverage
     runs-on: ubuntu-latest
     container:
       image: xd009642/tarpaulin:develop
       options: --security-opt seccomp=unconfined
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v2
-      - name: Lint for errors, correctness, style and more
-        run: cargo clippy --all-features --verbose
+      - uses: actions/checkout@v2
       - name: Generate code coverage
         run: cargo tarpaulin --verbose --all-features --workspace --timeout 120 --out Xml
       - name: Upload to codecov.io
