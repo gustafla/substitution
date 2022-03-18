@@ -109,3 +109,18 @@ fn main() -> Result<()> {
         Opts::Encrypt(e) => e.run()?,
     })
 }
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn normalize_input_keeps_ascii_alphabetic_and_whitespace() {
+        assert_eq!(normalize_input("hello, world! 😊".into()), "hello world ");
+    }
+
+    #[test]
+    fn normalize_input_transforms_to_lowercase() {
+        assert_eq!(normalize_input("Hello WORLD".into()), "hello world");
+    }
+}
