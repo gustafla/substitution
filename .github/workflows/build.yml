@@ -21,6 +21,7 @@ jobs:
 
   coverage:
     name: Test and upload coverage
+    needs: check
     runs-on: ubuntu-latest
     container:
       image: xd009642/tarpaulin:develop
