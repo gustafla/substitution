@@ -1,3 +1,8 @@
+//! CLI program to decipher substitution ciphers.
+//!
+//! Run with --help for usage and options.
+
+#![deny(rustdoc::all)]
 #![deny(clippy::all)]
 #![warn(clippy::pedantic)]
 #![warn(clippy::cargo)]
@@ -7,6 +12,8 @@ use color_eyre::Result;
 use rand::prelude::*;
 use std::io::Write;
 
+/// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
+/// Leaves out all other characters than ASCII alphabetic and whitespace.
 fn normalize_input(input: String) -> String {
     input
         .chars()
