@@ -16,7 +16,7 @@ This project is written in [Rust](https://rust-lang.org) and uses Cargo as its
 build and test system. Code coverage is currently generated using
 [tarpaulin](https://github.com/xd009642/tarpaulin).
 
-The command line interface starts from [`src/main.rs`] \(`fn main()`\) and
+The command line interface starts from [main.rs](src/main.rs) (`fn main()`) and
 currently all code resides in that single file.
 
 ## Building and running
