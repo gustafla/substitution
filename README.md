@@ -9,6 +9,7 @@
 
 - [Week 1](doc/week1_log.md)
 - [Week 2](doc/week2_log.md)
+- [Week 3](doc/week3_log.md)
 
 ## Overview
 
@@ -17,7 +18,7 @@ build and test system. Code coverage is currently generated using
 [tarpaulin](https://github.com/xd009642/tarpaulin).
 
 The command line interface starts from [main.rs](src/main.rs) (`fn main()`) and
-currently all code resides in that single file.
+the business logic and unit tests reside in [lib.rs](src/lib.rs).
 
 ## Building and running
 
@@ -27,9 +28,9 @@ To build a debug binary, run `cargo build`. The output goes to
 To build a (best performance) release binary, run `cargo build --release`.
 The output goes to `target/release/substitution`.
 
-To build and run (both at once), run `cargo run`. Command line arguments to the
+To run the program, run `cargo run`. Command line arguments to the
 application can be supplied after `--`, for example
-`cargo run -- encrypt Hello`.
+`cargo run -- encrypt`.
 
 ## Source code documentation
 
@@ -58,6 +59,13 @@ tarpaulin installed), but Github Actions has been configured to do that and
 upload the [results](https://codecov.io/gh/gustafla/substitution) to
 codecov.io.
 
+The test suite consists of unit tests for library functions ([lib.rs](src/lib.rs)).
+Every function has at least one corresponding unit test. The encyption and decryption
+functions are tested with short sentences, longer texts and also really long (100000
+characters) randomly generated texts. The encryption function has tests for output
+length and frequency profile, and the decryption function currently only has a test
+for output length.
+
 ## Linting and style
 
 A basic compiler check can be performed with `cargo check` but you should run
@@ -69,4 +77,4 @@ The codebase disallows all
 missing documentation (and code examples), and clippy's warning-level lints.
 Extra clippy warnings are also generated from pedantic lints.
 
-See the crate-level lint attributes in the beginning of [main.rs](src/main.rs).
+See the crate-level lint attributes in the beginning of [lib.rs](src/lib.rs).
