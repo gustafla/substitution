@@ -16,7 +16,7 @@ use rand::prelude::*;
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
 /// Leaves out all other characters than ASCII alphabetic and whitespace.
-fn filter_input(input: String) -> Vec<u8> {
+fn filter_input(input: &str) -> Vec<u8> {
     input
         .chars()
         .filter_map(|c| {
@@ -30,7 +30,8 @@ fn filter_input(input: String) -> Vec<u8> {
 }
 
 /// Encrypts the string provided from CLI with a randomly generated substitution cipher.
-pub fn encrypt(input: String) -> String {
+#[must_use]
+pub fn encrypt(input: &str) -> String {
     let input = filter_input(input);
 
     // Create a random substitution
@@ -53,13 +54,14 @@ pub fn encrypt(input: String) -> String {
 }
 
 /// Deciphers the string provided from CLI using statistics about english language.
-pub fn decrypt(input: String) -> String {
-    let input = filter_input(input);
-
+#[must_use]
+pub fn decrypt(input: &str) -> String {
     static ENGLISH_FREQ_ORDER: [u8; 26] = [
         b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c',
         b'f', b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
     ];
+
+    let input = filter_input(input);
 
     let mut freqs: Vec<usize> = vec![0; ('a'..='z').count()];
     for word in input.split(u8::is_ascii_whitespace) {
@@ -67,10 +69,9 @@ pub fn decrypt(input: String) -> String {
             freqs[*cchar as usize - b'a' as usize] += 1;
         }
     }
-    let mut freqs: Vec<(u8, usize)> = freqs
-        .iter()
-        .enumerate()
-        .map(|(i, n)| (b'a' + i as u8, *n))
+    let mut freqs: Vec<(u8, usize)> = (0u8..)
+        .zip(freqs.iter())
+        .map(|(i, n)| (b'a' + i, *n))
         .collect();
     freqs.sort_unstable_by_key(|e| e.1);
 
@@ -113,7 +114,7 @@ mod test {
     fn encrypt_output_expected_lenght() {
         let input: String = "Moikka tiraprojekti!".into();
         dbg!(&input);
-        let out = encrypt(input.clone());
+        let out = encrypt(&input);
         dbg!(&out);
         assert_eq!(out.len(), input.len() - 1);
     }
@@ -131,12 +132,12 @@ mod test {
         let mut output_freqs = HashMap::new();
 
         // Count stats about the input string
-        let filtered_input = filter_input(input.clone());
+        let filtered_input = filter_input(&input);
         stats(&mut input_freqs, filtered_input.iter());
         dbg!(&input_freqs);
 
         // Encrypt the input
-        let out = encrypt(input);
+        let out = encrypt(&input);
 
         // Count stats about the output string
         stats(&mut output_freqs, out.as_bytes().iter());
@@ -175,10 +176,10 @@ mod test {
     #[test]
     fn decrypt_expected_lenght() {
         let input: String = "Moikka tiraprojekti!".into();
-        let encrypted = encrypt(input.clone());
+        let encrypted = encrypt(&input);
         dbg!(&input);
         dbg!(&encrypted);
-        let decrypted = decrypt(encrypted);
+        let decrypted = decrypt(&encrypted);
         dbg!(&decrypted);
         assert_eq!(decrypted.len(), input.len() - 1);
     }

@@ -4,8 +4,13 @@ authors = ["Lauri Gustafsson"]
 description = "Encode and decipher substitution ciphers"
 version = "0.1.0"
 edition = "2021"
+readme = "README.md"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/gustafla/substitution"
+keywords = ["cryptography", "cipher", "algorithm"]
+categories = ["cryptography"]
 
 [dependencies]
 color-eyre = "0.6.1"
-clap = { version = "3.1.6", features = ["derive"] }
-rand = "0.8.4"
+clap = { version = "3.1.8", features = ["derive"] }
+rand = "0.8.5"

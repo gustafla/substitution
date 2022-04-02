@@ -65,8 +65,8 @@ fn main() -> Result<()> {
         stdout,
         "{}",
         match opts.command {
-            Command::Decrypt => substitution::decrypt(input),
-            Command::Encrypt => substitution::encrypt(input),
+            Command::Decrypt => substitution::decrypt(&input),
+            Command::Encrypt => substitution::encrypt(&input),
         }
     )?;
 
