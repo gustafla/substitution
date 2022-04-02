@@ -74,7 +74,7 @@ checks. This is also performed in CI and the "build" badge reflects the status.
 
 The codebase disallows all
 [unsafe code](https://doc.rust-lang.org/book/ch19-01-unsafe-rust.html),
-missing documentation (and code examples), and clippy's warning-level lints.
+missing documentation, and clippy's warning-level lints.
 Extra clippy warnings are also generated from pedantic lints.
 
 See the crate-level lint attributes in the beginning of [lib.rs](src/lib.rs).

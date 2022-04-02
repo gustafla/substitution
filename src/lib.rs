@@ -2,7 +2,8 @@
 
 // Forbid unsafe code (https://doc.rust-lang.org/book/ch19-01-unsafe-rust.html)
 #![forbid(unsafe_code)]
-// Disallow all missing docs and missing code examples for public items
+// Disallow all missing docs and rustdoc lints
+#![deny(missing_docs)]
 #![deny(rustdoc::all)]
 // Error from most clippy warnings (https://github.com/rust-lang/rust-clippy)
 #![deny(clippy::all)]

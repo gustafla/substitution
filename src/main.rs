@@ -4,15 +4,10 @@
 
 // Forbid unsafe code (https://doc.rust-lang.org/book/ch19-01-unsafe-rust.html)
 #![forbid(unsafe_code)]
-// Disallow all missing docs and missing code examples for public items
-#![deny(rustdoc::all)]
 // Error from most clippy warnings (https://github.com/rust-lang/rust-clippy)
 #![deny(clippy::all)]
 // Warnings from pedantic clippy lints
 #![warn(clippy::pedantic)]
-// Warnings about missing Cargo.toml fields
-#![warn(clippy::cargo)]
-// More about lint levels https://doc.rust-lang.org/rustc/lints/levels.html
 
 use clap::{Parser, Subcommand};
 use color_eyre::Result;
