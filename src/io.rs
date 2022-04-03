@@ -1,3 +1,6 @@
+// Don't measure coverage, this is support code for CLI
+#![cfg(not(tarpaulin_include))]
+
 use color_eyre::eyre::Context;
 use std::{
     fs::File,

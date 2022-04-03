@@ -8,6 +8,8 @@
 #![deny(clippy::all)]
 // Warnings from pedantic clippy lints
 #![warn(clippy::pedantic)]
+// Don't measure the CLI binary's coverage in tarpaulin
+#![cfg(not(tarpaulin_include))]
 
 // "Include" src/io.rs in the main CLI here
 mod io;
@@ -64,7 +66,6 @@ impl std::str::FromStr for Mode {
     }
 }
 
-#[cfg(not(tarpaulin_include))]
 fn main() -> Result<()> {
     // Install color_eyre's panic- and error report handlers
     color_eyre::install()?;
