@@ -1,6 +1,6 @@
 # Week 4 Report
 
-## 2022-04-09, 7h
+## 2022-04-09, 8h
 
 This week I have been tired and found myself concentrating on irrelevant
 tasks/hobbies too much.
@@ -19,3 +19,6 @@ out yet as it requires cloning the key instead of just working with references.
 Next week my goal is to load up a dictionary in the trie, and then implement
 the data structures needed for searching for the correct key. I hope the
 square grid graph DFS I voluntarily wrote earlier will guide me with that.
+
+P.S. Now I also micro-optimized Trie a bit and implemented the
+key-reference based API to trie.
