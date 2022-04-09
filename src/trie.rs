@@ -1,5 +1,3 @@
-use std::ops::Deref;
-
 /// Type for the size of the trie's alphabet
 pub type AlphabetSize = usize;
 
@@ -15,7 +13,7 @@ pub struct KeyIndex<const R: AlphabetSize> {
 }
 
 // Enables dereferencing back to usize. (`*key_index`)
-impl<const R: AlphabetSize> Deref for KeyIndex<R> {
+impl<const R: AlphabetSize> std::ops::Deref for KeyIndex<R> {
     type Target = usize;
 
     fn deref(&self) -> &Self::Target {
@@ -42,9 +40,9 @@ pub struct Key<const R: AlphabetSize> {
 
 impl<const R: AlphabetSize> Key<R> {
     // Convert a u8 slice (byte string) to Key
-    pub fn from_bytes(value: impl AsRef<[u8]>) -> Result<Self, KeyNotInAlphabet> {
-        let mut buf = Vec::with_capacity(value.as_ref().len());
-        for value in value.as_ref() {
+    pub fn from_bytes(slice: &[u8]) -> Result<Self, KeyNotInAlphabet> {
+        let mut buf = Vec::with_capacity(slice.len());
+        for value in slice {
             buf.push(usize::from(*value).try_into()?);
         }
         Ok(Self { buf })
