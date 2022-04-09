@@ -60,7 +60,7 @@ impl<const R: AlphabetSize> IntoIterator for Key<R> {
 }
 
 /// Type used for indirect pointing to other nodes from nodes
-type NodeIndex = usize;
+type NodeIndex = std::num::NonZeroUsize;
 
 /// A node of trie, which holds indices to other nodes
 #[derive(Clone)]
@@ -88,13 +88,21 @@ impl<const R: AlphabetSize, T> Node<R, T> {
         let node = self.children.get_mut(*key).unwrap();
         *node = Some(idx);
     }
+}
 
-    fn get(&self) -> &Option<T> {
+// Allow accessing the value in the node by dereferencing
+impl<const R: AlphabetSize, T> std::ops::Deref for Node<R, T> {
+    type Target = Option<T>;
+
+    fn deref(&self) -> &Self::Target {
         &self.value
     }
+}
 
-    fn set(&mut self, value: Option<T>) {
-        self.value = value;
+// Allow accessing the value in the node by dereferencing
+impl<const R: AlphabetSize, T> std::ops::DerefMut for Node<R, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.value
     }
 }
 
@@ -122,16 +130,16 @@ impl<const R: AlphabetSize> Set<R> {
     /// Creates a new node and returns it's index
     fn create(&mut self) -> NodeIndex {
         self.nodes.push(Node::new());
-        self.nodes.len() - 1
+        NodeIndex::new(self.nodes.len() - 1).unwrap()
     }
 
     /// Immutable node reference
-    fn node(&self, idx: NodeIndex) -> &Node<R, Inserted> {
+    fn node(&self, idx: usize) -> &Node<R, Inserted> {
         &self.nodes[idx]
     }
 
     /// Mutable node reference
-    fn node_mut(&mut self, idx: NodeIndex) -> &mut SetNode<R> {
+    fn node_mut(&mut self, idx: usize) -> &mut SetNode<R> {
         &mut self.nodes[idx]
     }
 
@@ -144,17 +152,17 @@ impl<const R: AlphabetSize> Set<R> {
             // Look up next node's index by key
             node = match self.node(node).get_idx(key) {
                 // Go to next if it already exists
-                Some(next) => *next,
+                Some(next) => next.get(),
                 // Create a new node and go to it if not preexisting
                 None => {
                     let new_node = self.create();
                     self.node_mut(node).set_idx(key, new_node);
-                    new_node
+                    new_node.get()
                 }
             }
         }
 
-        self.node_mut(node).set(Some(Inserted));
+        **self.node_mut(node) = Some(Inserted);
     }
 
     pub fn contains(&self, key: Key<R>) -> bool {
@@ -162,13 +170,13 @@ impl<const R: AlphabetSize> Set<R> {
 
         for key in key {
             if let Some(next) = self.node(node).get_idx(key) {
-                node = *next;
+                node = next.get();
             } else {
                 return false;
             }
         }
 
-        self.node(node).get().is_some()
+        self.node(node).is_some()
     }
 }
 
