@@ -39,6 +39,13 @@ pub struct Key<const R: AlphabetSize> {
 }
 
 impl<const R: AlphabetSize> Key<R> {
+    /// Iterate over references to the key's elements
+    fn iter(&self) -> std::slice::Iter<KeyIndex<R>> {
+        self.buf.iter()
+    }
+}
+
+impl<const R: AlphabetSize> Key<R> {
     // Convert a u8 slice (byte string) to Key
     pub fn from_bytes(slice: &[u8]) -> Result<Self, KeyNotInAlphabet> {
         let mut buf = Vec::with_capacity(slice.len());
@@ -46,16 +53,6 @@ impl<const R: AlphabetSize> Key<R> {
             buf.push(usize::from(*value).try_into()?);
         }
         Ok(Self { buf })
-    }
-}
-
-// Enables iterating a key with for-loop
-impl<const R: AlphabetSize> IntoIterator for Key<R> {
-    type Item = KeyIndex<R>;
-    type IntoIter = std::vec::IntoIter<Self::Item>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        self.buf.into_iter()
     }
 }
 
@@ -134,19 +131,19 @@ impl<const R: AlphabetSize> Set<R> {
     }
 
     /// Insert a key into the set.
-    pub fn insert(&mut self, key: Key<R>) {
+    pub fn insert(&mut self, key: &Key<R>) {
         let mut node = 0; // Root node index
 
         // Walk through key elements
-        for key in key {
+        for key in key.iter() {
             // Look up next node's index by key
-            node = match self.nodes[node].get_idx(key) {
+            node = match self.nodes[node].get_idx(*key) {
                 // Go to next if it already exists
                 Some(next) => next.get(),
                 // Create a new node and go to it if not preexisting
                 None => {
                     let new_node = self.create();
-                    self.nodes[node].set_idx(key, new_node);
+                    self.nodes[node].set_idx(*key, new_node);
                     new_node.get()
                 }
             }
@@ -155,11 +152,11 @@ impl<const R: AlphabetSize> Set<R> {
         *self.nodes[node] = Some(Inserted);
     }
 
-    pub fn contains(&self, key: Key<R>) -> bool {
+    pub fn contains(&self, key: &Key<R>) -> bool {
         let mut node = 0; // Root node index
 
-        for key in key {
-            if let Some(next) = self.nodes[node].get_idx(key) {
+        for key in key.iter() {
+            if let Some(next) = self.nodes[node].get_idx(*key) {
                 node = next.get();
             } else {
                 return false;
@@ -179,7 +176,7 @@ mod test {
         const R: AlphabetSize = 128;
         let key = Key::<R>::from_bytes(b"hello").unwrap();
         let set = Set::<R>::new();
-        assert!(!set.contains(key))
+        assert!(!set.contains(&key))
     }
 
     #[test]
@@ -187,7 +184,7 @@ mod test {
         const R: AlphabetSize = 128;
         let key = Key::<R>::from_bytes(b"hello").unwrap();
         let mut set = Set::<R>::new();
-        set.insert(key.clone());
-        assert!(set.contains(key))
+        set.insert(&key);
+        assert!(set.contains(&key))
     }
 }
