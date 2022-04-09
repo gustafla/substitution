@@ -13,6 +13,9 @@
 #![warn(clippy::cargo)]
 // More about lint levels https://doc.rust-lang.org/rustc/lints/levels.html
 
+// "Include" trie.rs
+mod trie;
+
 use rand::prelude::*;
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
