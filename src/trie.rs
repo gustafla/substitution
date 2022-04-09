@@ -133,16 +133,6 @@ impl<const R: AlphabetSize> Set<R> {
         NodeIndex::new(self.nodes.len() - 1).unwrap()
     }
 
-    /// Immutable node reference
-    fn node(&self, idx: usize) -> &Node<R, Inserted> {
-        &self.nodes[idx]
-    }
-
-    /// Mutable node reference
-    fn node_mut(&mut self, idx: usize) -> &mut SetNode<R> {
-        &mut self.nodes[idx]
-    }
-
     /// Insert a key into the set.
     pub fn insert(&mut self, key: Key<R>) {
         let mut node = 0; // Root node index
@@ -150,33 +140,33 @@ impl<const R: AlphabetSize> Set<R> {
         // Walk through key elements
         for key in key {
             // Look up next node's index by key
-            node = match self.node(node).get_idx(key) {
+            node = match self.nodes[node].get_idx(key) {
                 // Go to next if it already exists
                 Some(next) => next.get(),
                 // Create a new node and go to it if not preexisting
                 None => {
                     let new_node = self.create();
-                    self.node_mut(node).set_idx(key, new_node);
+                    self.nodes[node].set_idx(key, new_node);
                     new_node.get()
                 }
             }
         }
 
-        **self.node_mut(node) = Some(Inserted);
+        *self.nodes[node] = Some(Inserted);
     }
 
     pub fn contains(&self, key: Key<R>) -> bool {
         let mut node = 0; // Root node index
 
         for key in key {
-            if let Some(next) = self.node(node).get_idx(key) {
+            if let Some(next) = self.nodes[node].get_idx(key) {
                 node = next.get();
             } else {
                 return false;
             }
         }
 
-        self.node(node).is_some()
+        self.nodes[node].is_some()
     }
 }
 
