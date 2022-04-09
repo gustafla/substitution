@@ -100,16 +100,18 @@ impl<const R: AlphabetSize, T> Node<R, T> {
 
 /// A zero-sized type for just tracking if a key was inserted or not
 struct Inserted;
-type SetNode<const R: usize> = Node<R, Inserted>;
+
+/// A Node for a Set
+type SetNode<const R: AlphabetSize> = Node<R, Inserted>;
 
 /// A set as a trie, where R is the cardinality of the alphabet in use.
 ///
 /// Supports insertion and lookups.
-pub struct Set<const R: usize> {
+pub struct Set<const R: AlphabetSize> {
     nodes: Vec<SetNode<R>>,
 }
 
-impl<const R: usize> Set<R> {
+impl<const R: AlphabetSize> Set<R> {
     /// Initialize an empty `Set<R>`
     pub fn new() -> Self {
         Self {
@@ -134,8 +136,6 @@ impl<const R: usize> Set<R> {
     }
 
     /// Insert a key into the set.
-    ///
-    /// `key`'s elements need to be able to convert to usize.
     pub fn insert(&mut self, key: Key<R>) {
         let mut node = 0; // Root node index
 
@@ -178,7 +178,7 @@ mod test {
 
     #[test]
     fn no_insertion_not_contained() {
-        const R: usize = 128;
+        const R: AlphabetSize = 128;
         let key = Key::<R>::from_bytes(b"hello").unwrap();
         let set = Set::<R>::new();
         assert!(!set.contains(key))
@@ -186,7 +186,7 @@ mod test {
 
     #[test]
     fn insertion_contained() {
-        const R: usize = 128;
+        const R: AlphabetSize = 128;
         let key = Key::<R>::from_bytes(b"hello").unwrap();
         let mut set = Set::<R>::new();
         set.insert(key.clone());
