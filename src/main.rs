@@ -36,6 +36,9 @@ struct Cli {
     /// File to write output to. Defaults to stdout if omitted
     #[clap(long, short)]
     output_file: Option<PathBuf>,
+    /// Dictionary text file to use. Defaults to /usr/share/dict/words
+    #[clap(long, short, default_value = "/usr/share/dict/words")]
+    dictionary: PathBuf,
     /// Perform encrypt or decrypt
     mode: Mode,
     /// File to read as input. Defaults to stdin if omitted
@@ -73,25 +76,8 @@ fn read_input(opts: &Cli) -> Result<String> {
     let mut input: io::Input = opts.path.clone().try_into()?;
     BufReader::new(input.as_mut())
         .read_to_string(&mut text)
-        .wrap_err(format!("Cannot read from {}", input))?;
+        .wrap_err_with(|| format!("Cannot read from {}", input))?;
     Ok(text)
-}
-
-/// Process all text and write to output
-fn run(mode: &Mode, text: &str, output: &mut io::Output) -> Result<()> {
-    // Run and write the result out
-    {
-        let mut writer = BufWriter::new(output.as_mut());
-        writeln!(
-            writer,
-            "{}",
-            match mode {
-                Mode::Decrypt => substitution::decrypt(text),
-                Mode::Encrypt => substitution::encrypt(text),
-            }
-        )
-    }
-    .wrap_err(format!("Cannot write to {}", output))
 }
 
 fn main() -> Result<()> {
@@ -112,6 +98,24 @@ fn main() -> Result<()> {
     }
     .try_into()?;
 
-    // Process the input and write to output
-    run(&opts.mode, &text, &mut output)
+    // Run and write the result out
+    {
+        let mut writer = BufWriter::new(output.as_mut());
+        writeln!(
+            writer,
+            "{}",
+            match opts.mode {
+                Mode::Decrypt => {
+                    let dict =
+                        BufReader::new(std::fs::File::open(&opts.dictionary).wrap_err_with(
+                            || format!("Cannor open {}", opts.dictionary.display()),
+                        )?);
+                    substitution::decrypt(&text, dict).wrap_err("Cannot decrypt")?
+                }
+
+                Mode::Encrypt => substitution::encrypt(&text),
+            }
+        )
+    }
+    .wrap_err_with(|| format!("Cannot write to {}", output))
 }

@@ -18,58 +18,37 @@ pub enum Error {
     },
 }
 
-/// Type used for looking up node indices from key's elements
-#[derive(Clone, Copy, Debug)]
-pub struct KeyIndex<const R: AlphabetSize> {
-    inner: usize,
-}
-
-// Enables dereferencing back to usize. (`*key_index`)
-impl<const R: AlphabetSize> std::ops::Deref for KeyIndex<R> {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-// The only way to create KeyIndex. Checks the invariant that the index is lower than alphabet size
-impl<const R: AlphabetSize> TryFrom<usize> for KeyIndex<R> {
-    type Error = Error;
-
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        (value < R)
-            .then(|| Self { inner: value })
-            .ok_or(Error::KeyNotInAlphabet { value, size: R })
-    }
-}
-
 /// Key for trie operations
 #[derive(Clone, Debug)]
-pub struct Key<const R: AlphabetSize> {
-    buf: Vec<KeyIndex<R>>,
+pub struct Key<const R: AlphabetSize, I: Into<usize> + Copy> {
+    buf: Vec<I>,
 }
 
-impl<const R: AlphabetSize> Key<R> {
+impl<const R: AlphabetSize, I: Into<usize> + Copy> Key<R, I> {
     /// Iterate over references to the key's elements
-    fn iter(&self) -> std::slice::Iter<KeyIndex<R>> {
+    fn iter(&self) -> std::slice::Iter<I> {
         self.buf.iter()
     }
 }
 
-impl<const R: AlphabetSize> Key<R> {
-    // Convert a u8 slice (byte string) to Key
-    // This cannot be (for now) TryFrom<AsRef<[u8]>> because of conflicting blanket impl in core
-    pub fn from_bytes(slice: &[u8]) -> Result<Self, Error> {
-        let mut buf = Vec::with_capacity(slice.len());
-        for value in slice {
-            buf.push(usize::from(*value).try_into()?);
+impl<const R: AlphabetSize, I: Into<usize> + Copy> TryFrom<Vec<I>> for Key<R, I> {
+    type Error = Error;
+
+    fn try_from(buf: Vec<I>) -> Result<Self, Self::Error> {
+        for value in &buf {
+            if (*value).into() >= R {
+                return Err(Error::KeyNotInAlphabet {
+                    value: (*value).into(),
+                    size: R,
+                });
+            }
         }
         Ok(Self { buf })
     }
 }
 
-impl<const R: AlphabetSize> std::str::FromStr for Key<R> {
+// Convert &str (such as "this" <- literal) to a key
+impl<const R: AlphabetSize> std::str::FromStr for Key<R, usize> {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -80,7 +59,10 @@ impl<const R: AlphabetSize> std::str::FromStr for Key<R> {
                 value: c,
                 source: e,
             })?;
-            buf.push(us.try_into()?);
+            if us >= R {
+                return Err(Error::KeyNotInAlphabet { value: us, size: R });
+            }
+            buf.push(us);
         }
         Ok(Self { buf })
     }
@@ -106,13 +88,13 @@ impl<const R: AlphabetSize, T> Node<R, T> {
     }
 
     /// Get the index for the next node for key
-    fn get_idx(&self, key: KeyIndex<R>) -> &Option<NodeIndex> {
-        self.children.get(*key).unwrap()
+    fn get_idx(&self, key: usize) -> &Option<NodeIndex> {
+        self.children.get(key).unwrap()
     }
 
     /// Set the index for the next node for key
-    fn set_idx(&mut self, key: KeyIndex<R>, idx: NodeIndex) {
-        let node = self.children.get_mut(*key).unwrap();
+    fn set_idx(&mut self, key: usize, idx: NodeIndex) {
+        let node = self.children.get_mut(key).unwrap();
         *node = Some(idx);
     }
 }
@@ -139,7 +121,7 @@ pub struct Trie<const R: AlphabetSize, T> {
 }
 
 impl<const R: AlphabetSize, T> Trie<R, T> {
-    /// Initialize an empty `Set<R>`
+    /// Initialize an empty trie
     pub fn new() -> Self {
         Self {
             nodes: vec![Node::new()],
@@ -153,19 +135,19 @@ impl<const R: AlphabetSize, T> Trie<R, T> {
     }
 
     /// Insert a value into the trie
-    pub fn insert(&mut self, key: &Key<R>, value: T) {
+    pub fn insert<I: Into<usize> + Copy>(&mut self, key: &Key<R, I>, value: T) {
         let mut node = 0; // Root node index
 
         // Walk through key elements
         for key in key.iter() {
             // Look up next node's index by key
-            node = match self.nodes[node].get_idx(*key) {
+            node = match self.nodes[node].get_idx((*key).into()) {
                 // Go to next if it already exists
                 Some(next) => next.get(),
                 // Create a new node and go to it if not preexisting
                 None => {
                     let new_node = self.create();
-                    self.nodes[node].set_idx(*key, new_node);
+                    self.nodes[node].set_idx((*key).into(), new_node);
                     new_node.get()
                 }
             }
@@ -175,11 +157,11 @@ impl<const R: AlphabetSize, T> Trie<R, T> {
     }
 
     /// Retrieve value for given key
-    pub fn search(&self, key: &Key<R>) -> &Option<T> {
+    pub fn search<I: Into<usize> + Copy>(&self, key: &Key<R, I>) -> &Option<T> {
         let mut node = 0; // Root node index
 
         for key in key.iter() {
-            if let Some(next) = self.nodes[node].get_idx(*key) {
+            if let Some(next) = self.nodes[node].get_idx((*key).into()) {
                 node = next.get();
             } else {
                 return &None;
@@ -196,15 +178,18 @@ pub struct Set<const R: AlphabetSize> {
 }
 
 impl<const R: AlphabetSize> Set<R> {
+    /// Initialize an empty set
     pub fn new() -> Self {
         Self { trie: Trie::new() }
     }
 
-    pub fn insert(&mut self, key: &Key<R>) {
+    /// Insert a value (key) into the set
+    pub fn insert<I: Into<usize> + Copy>(&mut self, key: &Key<R, I>) {
         self.trie.insert(key, ());
     }
 
-    pub fn contains(&self, key: &Key<R>) -> bool {
+    /// Returns true if the value (key) has been inserted, otherwise false
+    pub fn contains<I: Into<usize> + Copy>(&self, key: &Key<R, I>) -> bool {
         self.trie.search(key).is_some()
     }
 }
@@ -216,7 +201,7 @@ mod test {
     #[test]
     fn no_insertion_not_contained() {
         const R: AlphabetSize = 128;
-        let key = Key::<R>::from_bytes(b"hello").unwrap();
+        let key = Key::<R, u8>::try_from(b"hello".to_vec()).unwrap();
         let set = Set::<R>::new();
         assert!(!set.contains(&key))
     }
@@ -224,7 +209,7 @@ mod test {
     #[test]
     fn insertion_contained() {
         const R: AlphabetSize = 128;
-        let key = Key::<R>::from_bytes(b"hello").unwrap();
+        let key = Key::<R, u8>::try_from(b"hello".to_vec()).unwrap();
         let mut set = Set::<R>::new();
         set.insert(&key);
         assert!(set.contains(&key))
@@ -233,21 +218,21 @@ mod test {
     #[test]
     fn insertion_subkey_not_contained() {
         const R: AlphabetSize = 128;
-        let key = Key::<R>::from_bytes(b"hello").unwrap();
+        let key = Key::<R, u8>::try_from(b"hello".to_vec()).unwrap();
         let mut set = Set::<R>::new();
         set.insert(&key);
-        let key = Key::<R>::from_bytes(b"hell").unwrap();
+        let key = Key::<R, u8>::try_from(b"hell".to_vec()).unwrap();
         assert!(!set.contains(&key))
     }
 
     #[test]
     fn multiple_insertions() {
         const R: AlphabetSize = 128;
-        let keys: Vec<Key<R>> = ["apples", "oranges", "bananas"]
+        let keys: Vec<Key<R, usize>> = ["apples", "oranges", "bananas"]
             .iter()
             .map(|str| str.parse().unwrap())
             .collect();
-        let false_keys: Vec<Key<R>> = ["apple", "orangee", "bananasplit", ""]
+        let false_keys: Vec<Key<R, usize>> = ["apple", "orangee", "bananasplit", ""]
             .iter()
             .map(|str| str.parse().unwrap())
             .collect();
@@ -268,7 +253,7 @@ mod test {
     fn key_from_str_error() {
         use std::str::FromStr;
         assert!(matches!(
-            Key::<96>::from_str("Hello!"),
+            Key::<96, usize>::from_str("Hello!"),
             Err(Error::KeyNotInAlphabet {
                 value: 101,
                 size: 96,

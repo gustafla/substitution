@@ -17,6 +17,13 @@
 mod trie;
 
 use rand::prelude::*;
+use std::io::BufRead;
+
+/// The range of ASCII lowercase letters that will be used in dictionary
+const START: u8 = b'a';
+const END: u8 = b'z';
+const R: trie::AlphabetSize = START.abs_diff(END + 1) as trie::AlphabetSize;
+type I = u8;
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
 /// Leaves out all other characters than ASCII alphabetic and whitespace.
@@ -57,13 +64,36 @@ pub fn encrypt(input: &str) -> String {
     buf
 }
 
+/// Convert bytes from START..=END to indices in 0..R, discarding bytes which aren't in range
+fn bytes_to_key(slice: &[u8]) -> trie::Key<R, I> {
+    let buf: Vec<u8> = slice
+        .iter()
+        .filter_map(|b| b.checked_sub(START))
+        .filter(|b| *b <= END)
+        .collect();
+    trie::Key::<R, u8>::try_from(buf).unwrap()
+}
+
+/// Read through a dictionary file and insert every word in a trie set
+fn load_dict(from: impl BufRead) -> Result<trie::Set<R>, std::io::Error> {
+    let mut dict = trie::Set::<R>::new();
+    for word in from.lines() {
+        let bytes = filter_input(&word?);
+        let key = bytes_to_key(&bytes);
+        dict.insert(&key);
+    }
+    Ok(dict)
+}
+
 /// Deciphers the string provided from CLI using statistics about english language.
-#[must_use]
-pub fn decrypt(input: &str) -> String {
+pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error> {
     static ENGLISH_FREQ_ORDER: [u8; 26] = [
         b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c',
         b'f', b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
     ];
+
+    // Create a dictionary of words
+    let dict = load_dict(dict)?;
 
     let input = filter_input(input);
 
@@ -95,7 +125,7 @@ pub fn decrypt(input: &str) -> String {
 
     // Remove trailing space. TODO, decrypt input in-place
     buf.pop();
-    buf
+    Ok(buf)
 }
 
 #[cfg(test)]
@@ -183,7 +213,7 @@ mod test {
         let encrypted = encrypt(&input);
         dbg!(&input);
         dbg!(&encrypted);
-        let decrypted = decrypt(&encrypted);
+        let decrypted = decrypt(&encrypted, std::io::BufReader::new(b"hello".as_slice())).unwrap();
         dbg!(&decrypted);
         assert_eq!(decrypted.len(), input.len() - 1);
     }
