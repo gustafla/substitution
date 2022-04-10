@@ -117,36 +117,28 @@ impl<const R: AlphabetSize, T> Node<R, T> {
     }
 }
 
-// Allow accessing the value in the node by dereferencing
-impl<const R: AlphabetSize, T> std::ops::Deref for Node<R, T> {
-    type Target = Option<T>;
-
-    fn deref(&self) -> &Self::Target {
+// Allow accessing the value in the node
+impl<const R: AlphabetSize, T> AsRef<Option<T>> for Node<R, T> {
+    fn as_ref(&self) -> &Option<T> {
         &self.value
     }
 }
 
-// Allow accessing the value in the node by dereferencing
-impl<const R: AlphabetSize, T> std::ops::DerefMut for Node<R, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
+// Allow accessing the value in the node
+impl<const R: AlphabetSize, T> AsMut<Option<T>> for Node<R, T> {
+    fn as_mut(&mut self) -> &mut Option<T> {
         &mut self.value
     }
 }
 
-/// A zero-sized type for just tracking if a key was inserted or not
-struct Inserted;
-
-/// A Node for a Set
-type SetNode<const R: AlphabetSize> = Node<R, Inserted>;
-
-/// A set as a trie, where R is the cardinality of the alphabet in use.
+/// Trie, where R is the cardinality of the alphabet in use.
 ///
-/// Supports insertion and lookups.
-pub struct Set<const R: AlphabetSize> {
-    nodes: Vec<SetNode<R>>,
+/// Supports insertion and retrieval.
+pub struct Trie<const R: AlphabetSize, T> {
+    nodes: Vec<Node<R, T>>,
 }
 
-impl<const R: AlphabetSize> Set<R> {
+impl<const R: AlphabetSize, T> Trie<R, T> {
     /// Initialize an empty `Set<R>`
     pub fn new() -> Self {
         Self {
@@ -154,14 +146,14 @@ impl<const R: AlphabetSize> Set<R> {
         }
     }
 
-    /// Creates a new node and returns it's index
+    /// Create a new node and return it's index
     fn create(&mut self) -> NodeIndex {
         self.nodes.push(Node::new());
         NodeIndex::new(self.nodes.len() - 1).unwrap()
     }
 
-    /// Insert a key into the set.
-    pub fn insert(&mut self, key: &Key<R>) {
+    /// Insert a value into the trie
+    pub fn insert(&mut self, key: &Key<R>, value: T) {
         let mut node = 0; // Root node index
 
         // Walk through key elements
@@ -179,21 +171,41 @@ impl<const R: AlphabetSize> Set<R> {
             }
         }
 
-        *self.nodes[node] = Some(Inserted);
+        *self.nodes[node].as_mut() = Some(value);
     }
 
-    pub fn contains(&self, key: &Key<R>) -> bool {
+    /// Retrieve value for given key
+    pub fn search(&self, key: &Key<R>) -> &Option<T> {
         let mut node = 0; // Root node index
 
         for key in key.iter() {
             if let Some(next) = self.nodes[node].get_idx(*key) {
                 node = next.get();
             } else {
-                return false;
+                return &None;
             }
         }
 
-        self.nodes[node].is_some()
+        self.nodes[node].as_ref()
+    }
+}
+
+/// Set based on trie
+pub struct Set<const R: AlphabetSize> {
+    trie: Trie<R, ()>,
+}
+
+impl<const R: AlphabetSize> Set<R> {
+    pub fn new() -> Self {
+        Self { trie: Trie::new() }
+    }
+
+    pub fn insert(&mut self, key: &Key<R>) {
+        self.trie.insert(key, ());
+    }
+
+    pub fn contains(&self, key: &Key<R>) -> bool {
+        self.trie.search(key).is_some()
     }
 }
 
