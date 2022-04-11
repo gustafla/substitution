@@ -11,6 +11,7 @@
 - [Week 2](doc/week2_log.md)
 - [Week 3](doc/week3_log.md)
 - [Week 4](doc/week4_log.md)
+- [Week 5](doc/week5_log.md)
 
 ## Overview
 

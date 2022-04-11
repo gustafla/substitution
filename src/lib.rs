@@ -23,7 +23,6 @@ use std::io::BufRead;
 const START: u8 = b'a';
 const END: u8 = b'z';
 const R: trie::AlphabetSize = START.abs_diff(END + 1) as trie::AlphabetSize;
-type I = u8;
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
 /// Leaves out all other characters than ASCII alphabetic and whitespace.
@@ -65,7 +64,7 @@ pub fn encrypt(input: &str) -> String {
 }
 
 /// Convert bytes from START..=END to indices in 0..R, discarding bytes which aren't in range
-fn bytes_to_key(slice: &[u8]) -> trie::Key<R, I> {
+fn bytes_to_key(slice: &[u8]) -> trie::Key<R, u8> {
     let buf: Vec<u8> = slice
         .iter()
         .filter_map(|b| b.checked_sub(START))
