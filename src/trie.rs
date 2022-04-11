@@ -18,23 +18,27 @@ pub enum Error {
     },
 }
 
+/// Trie's key's elements need to convert to usize and be small, automatically copied
+pub trait KeyElement: Into<usize> + Copy {}
+impl<E: Into<usize> + Copy> KeyElement for E {}
+
 /// Key for trie operations
 #[derive(Clone, Debug)]
-pub struct Key<const R: AlphabetSize, I: Into<usize> + Copy> {
-    buf: Vec<I>,
+pub struct Key<const R: AlphabetSize, E: KeyElement> {
+    buf: Vec<E>,
 }
 
-impl<const R: AlphabetSize, I: Into<usize> + Copy> Key<R, I> {
+impl<const R: AlphabetSize, E: KeyElement> Key<R, E> {
     /// Iterate over references to the key's elements
-    fn iter(&self) -> std::slice::Iter<I> {
+    fn iter(&self) -> std::slice::Iter<E> {
         self.buf.iter()
     }
 }
 
-impl<const R: AlphabetSize, I: Into<usize> + Copy> TryFrom<Vec<I>> for Key<R, I> {
+impl<const R: AlphabetSize, E: KeyElement> TryFrom<Vec<E>> for Key<R, E> {
     type Error = Error;
 
-    fn try_from(buf: Vec<I>) -> Result<Self, Self::Error> {
+    fn try_from(buf: Vec<E>) -> Result<Self, Self::Error> {
         for value in &buf {
             if (*value).into() >= R {
                 return Err(Error::KeyNotInAlphabet {
@@ -135,7 +139,7 @@ impl<const R: AlphabetSize, T> Trie<R, T> {
     }
 
     /// Insert a value into the trie
-    pub fn insert<I: Into<usize> + Copy>(&mut self, key: &Key<R, I>, value: T) {
+    pub fn insert<E: KeyElement>(&mut self, key: &Key<R, E>, value: T) {
         let mut node = 0; // Root node index
 
         // Walk through key elements
@@ -157,7 +161,7 @@ impl<const R: AlphabetSize, T> Trie<R, T> {
     }
 
     /// Retrieve value for given key
-    pub fn search<I: Into<usize> + Copy>(&self, key: &Key<R, I>) -> &Option<T> {
+    pub fn search<E: KeyElement>(&self, key: &Key<R, E>) -> &Option<T> {
         let mut node = 0; // Root node index
 
         for key in key.iter() {
@@ -184,12 +188,12 @@ impl<const R: AlphabetSize> Set<R> {
     }
 
     /// Insert a value (key) into the set
-    pub fn insert<I: Into<usize> + Copy>(&mut self, key: &Key<R, I>) {
+    pub fn insert<E: KeyElement>(&mut self, key: &Key<R, E>) {
         self.trie.insert(key, ());
     }
 
     /// Returns true if the value (key) has been inserted, otherwise false
-    pub fn contains<I: Into<usize> + Copy>(&self, key: &Key<R, I>) -> bool {
+    pub fn contains<E: KeyElement>(&self, key: &Key<R, E>) -> bool {
         self.trie.search(key).is_some()
     }
 }
