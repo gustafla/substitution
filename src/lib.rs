@@ -18,11 +18,12 @@ mod trie;
 
 use rand::prelude::*;
 use std::io::BufRead;
+use std::num::NonZeroU8;
 
 /// The range of ASCII lowercase letters that will be used in dictionary
 const START: u8 = b'a';
 const END: u8 = b'z';
-const R: trie::AlphabetSize = START.abs_diff(END + 1) as trie::AlphabetSize;
+const R: trie::AlphabetSize = START.abs_diff(END) as trie::AlphabetSize + 1;
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
 /// Leaves out all other characters than ASCII alphabetic and whitespace.
@@ -84,47 +85,136 @@ fn load_dict(from: impl BufRead) -> Result<trie::Set<R>, std::io::Error> {
     Ok(dict)
 }
 
+static ENGLISH_FREQ_ORDER: [u8; R] = [
+    b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c', b'f',
+    b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
+];
+
+struct Key {
+    table: [Option<NonZeroU8>; R],
+    started_from: [u8; R],
+    input_frequency_order: [u8; R],
+}
+
+impl Key {
+    fn new(words: &[&[u8]]) -> Self {
+        let mut freqs = [0; R];
+        for word in words {
+            for cchar in *word {
+                freqs[usize::from(*cchar) - usize::from(START)] += 1;
+            }
+        }
+        let mut freqs: Vec<(u8, usize)> = (0u8..)
+            .zip(freqs.iter())
+            .map(|(i, n)| (START + i, *n))
+            .collect();
+        freqs.sort_unstable_by_key(|e| std::cmp::Reverse(e.1));
+        let mut input_frequency_order = [0u8; R];
+        for (i, c) in freqs.iter().enumerate() {
+            input_frequency_order[i] = c.0;
+        }
+        Self {
+            table: [None; R],
+            started_from: [0; R],
+            input_frequency_order,
+        }
+    }
+
+    fn index(input: u8) -> usize {
+        usize::from(input - START)
+    }
+
+    fn attach(&mut self, input: u8, guess: NonZeroU8) -> Result<(), ()> {
+        for value in self.table {
+            if let Some(value) = value {
+                if value == guess {
+                    return Err(());
+                }
+            }
+        }
+        let idx = Self::index(input);
+        if self.table[idx].replace(guess) == None {
+            self.started_from[idx] = guess.get();
+        }
+        Ok(())
+    }
+
+    fn next_in_freq_order(start_guess: u8, current_guess: u8) -> Option<NonZeroU8> {
+        use std::cmp::Ordering;
+        let start_idx = ENGLISH_FREQ_ORDER
+            .iter()
+            .enumerate()
+            .find(|(_, c)| **c == start_guess)
+            .unwrap()
+            .0;
+        let current_idx = ENGLISH_FREQ_ORDER
+            .iter()
+            .enumerate()
+            .find(|(_, c)| **c == current_guess)
+            .unwrap()
+            .0;
+        let diff = start_idx.abs_diff(current_idx);
+        let lower = (diff < start_idx).then(|| start_idx - diff - 1);
+        let higher = (start_idx + diff < R).then(|| start_idx + diff);
+        let idx = match (current_idx.cmp(&start_idx), lower, higher) {
+            (Ordering::Less, _, Some(idx)) => idx,
+            (Ordering::Less, Some(idx), None) => idx,
+            (Ordering::Equal | Ordering::Greater, Some(idx), _) => idx,
+            (Ordering::Equal | Ordering::Greater, None, Some(idx)) => {
+                if idx + 1 < R {
+                    idx + 1
+                } else {
+                    return None;
+                }
+            }
+            _ => return None,
+        };
+        NonZeroU8::new(ENGLISH_FREQ_ORDER[idx])
+    }
+
+    fn attach_next(&mut self, input: u8) {
+        let idx = Self::index(input);
+        let mut current_guess = match self.table[idx] {
+            Some(current_guess) => current_guess,
+            None => {
+                let freq_index = self
+                    .input_frequency_order
+                    .iter()
+                    .enumerate()
+                    .find(|(_, c)| **c == input)
+                    .unwrap()
+                    .0;
+                let first_guess = NonZeroU8::new(ENGLISH_FREQ_ORDER[freq_index]).unwrap();
+                if self.attach(input, first_guess).is_ok() {
+                    return;
+                }
+                first_guess
+            }
+        };
+
+        while {
+            if let Some(guess) =
+                Self::next_in_freq_order(self.started_from[idx], current_guess.get())
+            {
+                current_guess = guess;
+            } else {
+                unimplemented!("What happens when all options have been tried for a character?");
+            }
+            self.attach(input, current_guess).is_err()
+        } {}
+    }
+}
+
 /// Deciphers the string provided from CLI using statistics about english language.
 pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error> {
-    static ENGLISH_FREQ_ORDER: [u8; 26] = [
-        b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c',
-        b'f', b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
-    ];
-
     // Create a dictionary of words
     let dict = load_dict(dict)?;
 
+    // Create a list of word slices
     let input = filter_input(input);
+    let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
 
-    let mut freqs: Vec<usize> = vec![0; ('a'..='z').count()];
-    for word in input.split(u8::is_ascii_whitespace) {
-        for cchar in word {
-            freqs[*cchar as usize - b'a' as usize] += 1;
-        }
-    }
-    let mut freqs: Vec<(u8, usize)> = (0u8..)
-        .zip(freqs.iter())
-        .map(|(i, n)| (b'a' + i, *n))
-        .collect();
-    freqs.sort_unstable_by_key(|e| e.1);
-
-    let mut decipher: Vec<u8> = vec![0; 26];
-    for i in 0..freqs.len() {
-        decipher[(ENGLISH_FREQ_ORDER[i] - b'a') as usize] = freqs[i].0;
-    }
-
-    // Decrypt
-    let mut buf = String::with_capacity(input.len());
-    for word in input.split(u8::is_ascii_whitespace) {
-        for cchar in word.iter().map(|c| decipher[*c as usize - b'a' as usize]) {
-            buf.push(cchar.into());
-        }
-        buf.push(' ');
-    }
-
-    // Remove trailing space. TODO, decrypt input in-place
-    buf.pop();
-    Ok(buf)
+    unimplemented!()
 }
 
 #[cfg(test)]
@@ -215,5 +305,55 @@ mod test {
         let decrypted = decrypt(&encrypted, std::io::BufReader::new(b"hello".as_slice())).unwrap();
         dbg!(&decrypted);
         assert_eq!(decrypted.len(), input.len() - 1);
+    }
+
+    #[test]
+    fn key_input_frequency_order() {
+        let input = filter_input("aaaaa bbvvvbb oo e");
+        let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
+        let key = Key::new(&words);
+        dbg!(key.input_frequency_order);
+        assert!(matches!(
+            key.input_frequency_order,
+            [b'a', b'b', b'v', b'o', b'e', ..]
+        ));
+    }
+
+    #[test]
+    fn key_next_in_freq_order_covers_all_for_all() {
+        for start_from in START..=END {
+            let mut values_got = [0; R];
+            let mut current = start_from;
+            values_got[usize::from(current - START)] += 1;
+            while let Some(next) = Key::next_in_freq_order(start_from, current) {
+                current = next.get();
+                println!("Got '{}'", char::from(current));
+                values_got[usize::from(current - START)] += 1;
+            }
+            assert_eq!(values_got, [1; R]);
+        }
+    }
+
+    fn assert_key_next_in_freq_order(start: u8, expected: &[u8]) {
+        let mut current = NonZeroU8::new(start).unwrap();
+        for chr in expected {
+            match Key::next_in_freq_order(start, current.get()) {
+                Some(val) => {
+                    current = val;
+                    println!("{} == {}", char::from(current.get()), char::from(*chr));
+                    assert_eq!(current.get(), *chr);
+                }
+                None => {
+                    assert_eq!(*chr, 0);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn key_next_in_freq_order_looks_correct() {
+        assert_key_next_in_freq_order(b'a', b"toen");
+        assert_key_next_in_freq_order(b'o', b"antiehsrd");
+        assert_key_next_in_freq_order(b'b', b"pkyvgjfxcqmzwuldrshinoate\0");
     }
 }
