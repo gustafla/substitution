@@ -36,7 +36,7 @@ struct Cli {
     /// File to write output to. Defaults to stdout if omitted
     #[clap(long, short)]
     output_file: Option<PathBuf>,
-    /// Dictionary text file to use. Defaults to /usr/share/dict/words
+    /// Dictionary text file to use
     #[clap(long, short, default_value = "/usr/share/dict/words")]
     dictionary: PathBuf,
     /// Perform encrypt or decrypt
