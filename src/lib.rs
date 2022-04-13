@@ -14,6 +14,7 @@
 // More about lint levels https://doc.rust-lang.org/rustc/lints/levels.html
 
 // "Include" trie.rs
+mod bitset;
 mod trie;
 
 use rand::prelude::*;
@@ -125,11 +126,9 @@ impl Key {
     }
 
     fn attach(&mut self, input: u8, guess: NonZeroU8) -> Result<(), ()> {
-        for value in self.table {
-            if let Some(value) = value {
-                if value == guess {
-                    return Err(());
-                }
+        for value in self.table.into_iter().flatten() {
+            if value == guess {
+                return Err(());
             }
         }
         let idx = Self::index(input);
@@ -157,9 +156,9 @@ impl Key {
         let lower = (diff < start_idx).then(|| start_idx - diff - 1);
         let higher = (start_idx + diff < R).then(|| start_idx + diff);
         let idx = match (current_idx.cmp(&start_idx), lower, higher) {
-            (Ordering::Less, _, Some(idx)) => idx,
-            (Ordering::Less, Some(idx), None) => idx,
-            (Ordering::Equal | Ordering::Greater, Some(idx), _) => idx,
+            (Ordering::Less, _, Some(idx))
+            | (Ordering::Less, Some(idx), None)
+            | (Ordering::Equal | Ordering::Greater, Some(idx), _) => idx,
             (Ordering::Equal | Ordering::Greater, None, Some(idx)) => {
                 if idx + 1 < R {
                     idx + 1
@@ -172,37 +171,64 @@ impl Key {
         NonZeroU8::new(ENGLISH_FREQ_ORDER[idx])
     }
 
-    fn attach_next(&mut self, input: u8) {
+    fn guess_first(&mut self, input: u8) -> Result<(), ()> {
         let idx = Self::index(input);
-        let mut current_guess = match self.table[idx] {
-            Some(current_guess) => current_guess,
-            None => {
-                let freq_index = self
-                    .input_frequency_order
-                    .iter()
-                    .enumerate()
-                    .find(|(_, c)| **c == input)
-                    .unwrap()
-                    .0;
-                let first_guess = NonZeroU8::new(ENGLISH_FREQ_ORDER[freq_index]).unwrap();
-                if self.attach(input, first_guess).is_ok() {
-                    return;
-                }
-                first_guess
+        if self.table[idx] == None {
+            let freq_index = self
+                .input_frequency_order
+                .iter()
+                .enumerate()
+                .find(|(_, c)| **c == input)
+                .unwrap()
+                .0;
+            let first_guess = NonZeroU8::new(ENGLISH_FREQ_ORDER[freq_index]).unwrap();
+            if self.attach(input, first_guess).is_ok() {
+                return Ok(());
             }
-        };
-
-        while {
-            if let Some(guess) =
-                Self::next_in_freq_order(self.started_from[idx], current_guess.get())
-            {
-                current_guess = guess;
-            } else {
-                unimplemented!("What happens when all options have been tried for a character?");
-            }
-            self.attach(input, current_guess).is_err()
-        } {}
+            self.attach_next(input, first_guess.get())
+        } else {
+            Ok(())
+        }
     }
+
+    fn attach_next(&mut self, input: u8, mut current_guess: u8) -> Result<(), ()> {
+        let idx = Self::index(input);
+        while {
+            if let Some(guess) = Self::next_in_freq_order(self.started_from[idx], current_guess) {
+                current_guess = guess.get();
+            } else {
+                return Err(());
+            }
+            self.attach(input, NonZeroU8::new(current_guess).unwrap())
+                .is_err()
+        } {}
+        Ok(())
+    }
+
+    fn guess_again(&mut self, input: u8) -> Result<(), ()> {
+        if let Some(current_guess) = self.table[Self::index(input)] {
+            self.attach_next(input, current_guess.get())
+        } else {
+            Ok(())
+        }
+    }
+
+    fn translate(&self, word: &[u8]) -> Vec<u8> {
+        word.into_iter()
+            .map(|c| match self.table[usize::from(*c - START)] {
+                Some(c) => c.get(),
+                None => *c,
+            })
+            .collect()
+    }
+}
+
+fn validate(words: &[&[u8]], dict: &trie::Set<R>) -> f32 {
+    let mut score = 0.;
+    for word in words {
+        score += dict.prefix_score(&bytes_to_key(word)) as f32 / (word.len() + 1) as f32;
+    }
+    score / words.len() as f32
 }
 
 /// Deciphers the string provided from CLI using statistics about english language.
@@ -213,6 +239,32 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error
     // Create a list of word slices
     let input = filter_input(input);
     let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
+    let mut key = Key::new(&words);
+    let mut itr_bs = bitset::U64BitSet::<4 /* 4 * 64 = 256 */>::new();
+
+    for word in words {
+        itr_bs.clear();
+        for c in word {
+            // maybe unnecessary
+            if !itr_bs.contains(*c) {
+                key.guess_first(*c).unwrap();
+                itr_bs.insert(*c);
+            }
+        }
+        'retries: for c in word {
+            loop {
+                let word = key.translate(word);
+                if validate(&[&word], &dict) > 0.7 {
+                    println!("Found likely word \"{}\"", String::from_utf8_lossy(&word));
+                    break 'retries;
+                }
+                if key.guess_again(*c).is_err() {
+                    break;
+                }
+            }
+        }
+        println!("Moving on");
+    }
 
     unimplemented!()
 }
@@ -298,11 +350,15 @@ mod test {
 
     #[test]
     fn decrypt_expected_lenght() {
-        let input: String = "Moikka tiraprojekti!".into();
+        let input: String = "Hello world!".into();
         let encrypted = encrypt(&input);
         dbg!(&input);
         dbg!(&encrypted);
-        let decrypted = decrypt(&encrypted, std::io::BufReader::new(b"hello".as_slice())).unwrap();
+        let decrypted = decrypt(
+            &encrypted,
+            std::io::BufReader::new(b"hello\nworld\n".as_slice()),
+        )
+        .unwrap();
         dbg!(&decrypted);
         assert_eq!(decrypted.len(), input.len() - 1);
     }

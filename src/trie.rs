@@ -160,19 +160,21 @@ impl<const R: AlphabetSize, T> Trie<R, T> {
         *self.nodes[node].as_mut() = Some(value);
     }
 
-    /// Retrieve value for given key
-    pub fn search<E: KeyElement>(&self, key: &Key<R, E>) -> &Option<T> {
+    /// Retrieve value for given key and tell how long prefix is contained in trie
+    pub fn prefix<E: KeyElement>(&self, key: &Key<R, E>) -> (usize, &Option<T>) {
         let mut node = 0; // Root node index
+        let mut depth = 0;
 
         for key in key.iter() {
             if let Some(next) = self.nodes[node].get_idx((*key).into()) {
                 node = next.get();
+                depth += 1;
             } else {
-                return &None;
+                return (depth, &None);
             }
         }
 
-        self.nodes[node].as_ref()
+        (depth, self.nodes[node].as_ref())
     }
 }
 
@@ -194,7 +196,13 @@ impl<const R: AlphabetSize> Set<R> {
 
     /// Returns true if the value (key) has been inserted, otherwise false
     pub fn contains<E: KeyElement>(&self, key: &Key<R, E>) -> bool {
-        self.trie.search(key).is_some()
+        self.trie.prefix(key).1.is_some()
+    }
+
+    /// Returns `key.len() + 1` if the value (key) has been inserted, otherwise found prefix length
+    pub fn prefix_score<E: KeyElement>(&self, key: &Key<R, E>) -> usize {
+        let (len, ins) = self.trie.prefix(key);
+        len + if ins.is_some() { 1 } else { 0 }
     }
 }
 
