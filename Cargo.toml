@@ -10,6 +10,12 @@ repository = "https://github.com/gustafla/substitution"
 keywords = ["cryptography", "cipher", "algorithm"]
 categories = ["cryptography"]
 
+[profile.dev]
+opt-level = 3
+
+[profile.test]
+opt-level = 3
+
 [dependencies]
 color-eyre = "0.6.1"
 clap = { version = "3.1.8", features = ["derive"] }

@@ -94,6 +94,7 @@ static ENGLISH_FREQ_ORDER: [u8; R] = [
 struct Key {
     table: [Option<NonZeroU8>; R],
     started_from: [u8; R],
+    ruled_out: [bitset::U64BitSet<4>; R],
     input_frequency_order: [u8; R],
 }
 
@@ -117,6 +118,7 @@ impl Key {
         Self {
             table: [None; R],
             started_from: [0; R],
+            ruled_out: [bitset::U64BitSet::<4>::new(); R],
             input_frequency_order,
         }
     }
@@ -125,15 +127,15 @@ impl Key {
         usize::from(input - START)
     }
 
-    fn attach(&mut self, input: u8, guess: NonZeroU8) -> Result<(), ()> {
+    fn attach(&mut self, input: u8, guess: u8) -> Result<(), ()> {
         for value in self.table.into_iter().flatten() {
-            if value == guess {
+            if value.get() == guess {
                 return Err(());
             }
         }
         let idx = Self::index(input);
-        if self.table[idx].replace(guess) == None {
-            self.started_from[idx] = guess.get();
+        if self.table[idx].replace(NonZeroU8::new(guess).unwrap()) == None {
+            self.started_from[idx] = guess;
         }
         Ok(())
     }
@@ -171,64 +173,136 @@ impl Key {
         NonZeroU8::new(ENGLISH_FREQ_ORDER[idx])
     }
 
-    fn guess_first(&mut self, input: u8) -> Result<(), ()> {
+    fn attach_next(&mut self, input: u8) -> Result<(), ()> {
         let idx = Self::index(input);
-        if self.table[idx] == None {
-            let freq_index = self
-                .input_frequency_order
-                .iter()
-                .enumerate()
-                .find(|(_, c)| **c == input)
-                .unwrap()
-                .0;
-            let first_guess = NonZeroU8::new(ENGLISH_FREQ_ORDER[freq_index]).unwrap();
-            if self.attach(input, first_guess).is_ok() {
-                return Ok(());
+        let (started_from, mut current_guess) = match self.table[idx] {
+            Some(current_guess) => (self.started_from[idx], current_guess.get()),
+            None => {
+                let freq_index = self
+                    .input_frequency_order
+                    .iter()
+                    .enumerate()
+                    .find(|(_, c)| **c == input)
+                    .unwrap()
+                    .0;
+                let first_guess = ENGLISH_FREQ_ORDER[freq_index];
+                if self.attach(input, first_guess).is_ok() {
+                    return Ok(());
+                }
+                (first_guess, first_guess)
             }
-            self.attach_next(input, first_guess.get())
-        } else {
-            Ok(())
-        }
-    }
+        };
 
-    fn attach_next(&mut self, input: u8, mut current_guess: u8) -> Result<(), ()> {
-        let idx = Self::index(input);
         while {
-            if let Some(guess) = Self::next_in_freq_order(self.started_from[idx], current_guess) {
+            if let Some(guess) = Self::next_in_freq_order(started_from, current_guess) {
                 current_guess = guess.get();
             } else {
                 return Err(());
             }
-            self.attach(input, NonZeroU8::new(current_guess).unwrap())
-                .is_err()
+            self.attach(input, current_guess).is_err()
         } {}
         Ok(())
     }
 
-    fn guess_again(&mut self, input: u8) -> Result<(), ()> {
-        if let Some(current_guess) = self.table[Self::index(input)] {
-            self.attach_next(input, current_guess.get())
-        } else {
-            Ok(())
-        }
+    fn clear(&mut self, input: u8) {
+        self.table[Self::index(input)] = None;
     }
 
-    fn translate(&self, word: &[u8]) -> Vec<u8> {
-        word.into_iter()
-            .map(|c| match self.table[usize::from(*c - START)] {
-                Some(c) => c.get(),
-                None => *c,
-            })
-            .collect()
+    fn translate(&self, words: &[&[u8]]) -> Vec<Vec<u8>> {
+        let mut buf = Vec::with_capacity(words.len());
+        for word in words {
+            buf.push(
+                word.iter()
+                    .map(|c| match self.table[usize::from(*c - START)] {
+                        Some(c) => c.get(),
+                        None => *c,
+                    })
+                    .collect(),
+            );
+        }
+        buf
     }
 }
 
-fn validate(words: &[&[u8]], dict: &trie::Set<R>) -> f32 {
-    let mut score = 0.;
+fn validate(words: &[Vec<u8>], dict: &trie::Set<R>) -> usize {
+    let mut score = 0;
     for word in words {
-        score += dict.prefix_score(&bytes_to_key(word)) as f32 / (word.len() + 1) as f32;
+        score += dict.prefix_score(&bytes_to_key(word));
     }
-    score / words.len() as f32
+    score
+}
+
+fn unique_chrs(words: &[&[u8]]) -> Vec<u8> {
+    let mut uc = Vec::with_capacity(16);
+    let mut set = bitset::U64BitSet::<4>::new();
+    for word in words {
+        for c in *word {
+            if !set.contains(*c) {
+                uc.push(*c);
+                set.insert(*c);
+            }
+        }
+    }
+    uc
+}
+
+fn decrypt_words(
+    words_in: &[&[u8]],
+    words_out: &mut Vec<Vec<u8>>,
+    key: &mut Key,
+    chars_set: &mut bitset::U64BitSet<1>,
+    dict: &trie::Set<R>,
+) -> Result<(), ()> {
+    if words_in.is_empty() {
+        return Ok(());
+    }
+
+    let words = &words_in[0..][..words_in.len().min(3)];
+    let len = words.iter().map(|word| word.len()).sum();
+    let free_chars: Vec<u8> = unique_chrs(words)
+        .into_iter()
+        .filter(|c| !chars_set.contains(c - START))
+        .collect();
+
+    'test: loop {
+        let translated = key.translate(words);
+
+        if validate(&translated, dict) >= len {
+            let ws: Vec<std::borrow::Cow<str>> = translated
+                .iter()
+                .map(|word| String::from_utf8_lossy(word))
+                .collect();
+            println!("Found likely words \"{}\"", ws.join(" "));
+
+            words_out.extend(translated);
+
+            // Set current key in stone for next round
+            free_chars.iter().for_each(|c| chars_set.insert(*c - START));
+
+            if decrypt_words(&words_in[words.len()..], words_out, key, chars_set, dict).is_ok() {
+                return Ok(());
+            }
+
+            // Deciphering ahead failed, current assumptions aren't right
+            words_out.pop();
+
+            // Clear set characters that weren't previously set in stone before call
+            free_chars.iter().for_each(|c| chars_set.remove(*c - START));
+        }
+
+        // Current key is wrong, try next
+        for chr in &free_chars {
+            match key.attach_next(*chr) {
+                Ok(()) => continue 'test,
+                Err(()) => {
+                    key.clear(*chr);
+                }
+            }
+        }
+        break;
+    }
+
+    Err(())
 }
 
 /// Deciphers the string provided from CLI using statistics about english language.
@@ -239,34 +313,22 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error
     // Create a list of word slices
     let input = filter_input(input);
     let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
+
+    // Create a key for deciphering
     let mut key = Key::new(&words);
-    let mut itr_bs = bitset::U64BitSet::<4 /* 4 * 64 = 256 */>::new();
 
-    for word in words {
-        itr_bs.clear();
-        for c in word {
-            // maybe unnecessary
-            if !itr_bs.contains(*c) {
-                key.guess_first(*c).unwrap();
-                itr_bs.insert(*c);
-            }
+    // Allocate output stack
+    let mut words_out = Vec::with_capacity(words.len());
+    let mut chars_set = bitset::U64BitSet::<1>::new();
+
+    // Recursive deciphering
+    match decrypt_words(&words, &mut words_out, &mut key, &mut chars_set, &dict) {
+        Ok(()) => {
+            let text = words_out.join(&b' ');
+            Ok(String::from_utf8(text).unwrap())
         }
-        'retries: for c in word {
-            loop {
-                let word = key.translate(word);
-                if validate(&[&word], &dict) > 0.7 {
-                    println!("Found likely word \"{}\"", String::from_utf8_lossy(&word));
-                    break 'retries;
-                }
-                if key.guess_again(*c).is_err() {
-                    break;
-                }
-            }
-        }
-        println!("Moving on");
+        Err(()) => Ok(String::from_utf8(input).unwrap()),
     }
-
-    unimplemented!()
 }
 
 #[cfg(test)]
@@ -349,18 +411,17 @@ mod test {
     }
 
     #[test]
-    fn decrypt_expected_lenght() {
+    fn decrypt_hello_world() {
         let input: String = "Hello world!".into();
         let encrypted = encrypt(&input);
         dbg!(&input);
         dbg!(&encrypted);
         let decrypted = decrypt(
             &encrypted,
-            std::io::BufReader::new(b"hello\nworld\n".as_slice()),
+            std::io::BufReader::new("hello\nworld\n".as_bytes()),
         )
         .unwrap();
-        dbg!(&decrypted);
-        assert_eq!(decrypted.len(), input.len() - 1);
+        assert_eq!(&decrypted, "hello world");
     }
 
     #[test]
