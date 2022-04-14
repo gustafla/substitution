@@ -19,7 +19,6 @@ mod trie;
 
 use rand::prelude::*;
 use std::io::BufRead;
-use std::num::NonZeroU8;
 
 /// The range of ASCII lowercase letters that will be used in dictionary
 const START: u8 = b'a';
@@ -86,40 +85,16 @@ fn load_dict(from: impl BufRead) -> Result<trie::Set<R>, std::io::Error> {
     Ok(dict)
 }
 
-static ENGLISH_FREQ_ORDER: [u8; R] = [
-    b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c', b'f',
-    b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
-];
-
 struct Key {
-    table: [Option<NonZeroU8>; R],
-    started_from: [u8; R],
-    ruled_out: [bitset::U64BitSet<4>; R],
-    input_frequency_order: [u8; R],
+    table: [u8; R],
+    guesses: bitset::U64BitSet<4>,
 }
 
 impl Key {
-    fn new(words: &[&[u8]]) -> Self {
-        let mut freqs = [0; R];
-        for word in words {
-            for cchar in *word {
-                freqs[usize::from(*cchar) - usize::from(START)] += 1;
-            }
-        }
-        let mut freqs: Vec<(u8, usize)> = (0u8..)
-            .zip(freqs.iter())
-            .map(|(i, n)| (START + i, *n))
-            .collect();
-        freqs.sort_unstable_by_key(|e| std::cmp::Reverse(e.1));
-        let mut input_frequency_order = [0u8; R];
-        for (i, c) in freqs.iter().enumerate() {
-            input_frequency_order[i] = c.0;
-        }
+    fn new() -> Self {
         Self {
-            table: [None; R],
-            started_from: [0; R],
-            ruled_out: [bitset::U64BitSet::<4>::new(); R],
-            input_frequency_order,
+            table: [0; R],
+            guesses: bitset::U64BitSet::<4>::new(),
         }
     }
 
@@ -128,75 +103,39 @@ impl Key {
     }
 
     fn attach(&mut self, input: u8, guess: u8) -> Result<(), ()> {
-        for value in self.table.into_iter().flatten() {
-            if value.get() == guess {
-                return Err(());
-            }
+        if self.guesses.contains(guess) {
+            return Err(());
         }
         let idx = Self::index(input);
-        if self.table[idx].replace(NonZeroU8::new(guess).unwrap()) == None {
-            self.started_from[idx] = guess;
-        }
+        self.guesses.remove(self.table[idx]);
+        self.table[idx] = guess;
+        self.guesses.insert(guess);
         Ok(())
     }
 
-    fn next_in_freq_order(start_guess: u8, current_guess: u8) -> Option<NonZeroU8> {
-        use std::cmp::Ordering;
-        let start_idx = ENGLISH_FREQ_ORDER
-            .iter()
-            .enumerate()
-            .find(|(_, c)| **c == start_guess)
-            .unwrap()
-            .0;
-        let current_idx = ENGLISH_FREQ_ORDER
-            .iter()
-            .enumerate()
-            .find(|(_, c)| **c == current_guess)
-            .unwrap()
-            .0;
-        let diff = start_idx.abs_diff(current_idx);
-        let lower = (diff < start_idx).then(|| start_idx - diff - 1);
-        let higher = (start_idx + diff < R).then(|| start_idx + diff);
-        let idx = match (current_idx.cmp(&start_idx), lower, higher) {
-            (Ordering::Less, _, Some(idx))
-            | (Ordering::Less, Some(idx), None)
-            | (Ordering::Equal | Ordering::Greater, Some(idx), _) => idx,
-            (Ordering::Equal | Ordering::Greater, None, Some(idx)) => {
-                if idx + 1 < R {
-                    idx + 1
-                } else {
-                    return None;
-                }
-            }
-            _ => return None,
-        };
-        NonZeroU8::new(ENGLISH_FREQ_ORDER[idx])
+    fn next_in_order(current_guess: u8) -> u8 {
+        if current_guess >= END {
+            0
+        } else {
+            current_guess + 1
+        }
     }
 
     fn attach_next(&mut self, input: u8) -> Result<(), ()> {
         let idx = Self::index(input);
-        let (started_from, mut current_guess) = match self.table[idx] {
-            Some(current_guess) => (self.started_from[idx], current_guess.get()),
-            None => {
-                let freq_index = self
-                    .input_frequency_order
-                    .iter()
-                    .enumerate()
-                    .find(|(_, c)| **c == input)
-                    .unwrap()
-                    .0;
-                let first_guess = ENGLISH_FREQ_ORDER[freq_index];
-                if self.attach(input, first_guess).is_ok() {
-                    return Ok(());
-                }
-                (first_guess, first_guess)
+        let mut current_guess = self.table[idx];
+
+        // Do first guess
+        if current_guess == 0 {
+            current_guess = START;
+            if self.attach(input, current_guess).is_ok() {
+                return Ok(());
             }
         };
 
         while {
-            if let Some(guess) = Self::next_in_freq_order(started_from, current_guess) {
-                current_guess = guess.get();
-            } else {
+            current_guess = Self::next_in_order(current_guess);
+            if current_guess == 0 {
                 return Err(());
             }
             self.attach(input, current_guess).is_err()
@@ -205,92 +144,113 @@ impl Key {
     }
 
     fn clear(&mut self, input: u8) {
-        self.table[Self::index(input)] = None;
+        let idx = Self::index(input);
+        self.guesses.remove(self.table[idx]);
+        self.table[idx] = 0;
     }
 
-    fn translate(&self, words: &[&[u8]]) -> Vec<Vec<u8>> {
-        let mut buf = Vec::with_capacity(words.len());
-        for word in words {
-            buf.push(
-                word.iter()
-                    .map(|c| match self.table[usize::from(*c - START)] {
-                        Some(c) => c.get(),
-                        None => *c,
-                    })
-                    .collect(),
-            );
+    fn translate(&self, text: &mut [u8]) {
+        for c in text {
+            if c.is_ascii_alphabetic() {
+                let translation = self.table[Self::index(*c)];
+                if translation != 0 {
+                    *c = translation;
+                }
+            }
         }
-        buf
     }
 }
 
-fn validate(words: &[Vec<u8>], dict: &trie::Set<R>) -> usize {
+fn validate(text: &[u8], dict: &trie::Set<R>) -> usize {
     let mut score = 0;
-    for word in words {
+    for word in text.split(u8::is_ascii_whitespace) {
         score += dict.prefix_score(&bytes_to_key(word));
     }
     score
 }
 
-fn unique_chrs(words: &[&[u8]]) -> Vec<u8> {
+fn unique_chars(input: &[u8]) -> Vec<u8> {
     let mut uc = Vec::with_capacity(16);
     let mut set = bitset::U64BitSet::<4>::new();
-    for word in words {
-        for c in *word {
-            if !set.contains(*c) {
-                uc.push(*c);
-                set.insert(*c);
-            }
+    for c in input {
+        if c.is_ascii_alphabetic() && !set.contains(*c) {
+            uc.push(*c);
+            set.insert(*c);
         }
     }
     uc
 }
 
+fn seek_words(from: &[u8], mut count: usize) -> &[u8] {
+    let mut trim_start = true;
+    for i in 0..from.len() {
+        if from[i].is_ascii_whitespace() {
+            if trim_start {
+                continue;
+            }
+            count -= 1;
+            if count == 0 {
+                return &from[..i];
+            }
+        }
+        trim_start = false;
+    }
+    from
+}
+
 fn decrypt_words(
-    words_in: &[&[u8]],
-    words_out: &mut Vec<Vec<u8>>,
+    input: &[u8],
+    output: &mut Vec<u8>,
     key: &mut Key,
     chars_set: &mut bitset::U64BitSet<1>,
     dict: &trie::Set<R>,
 ) -> Result<(), ()> {
-    if words_in.is_empty() {
+    if input.is_empty() {
         return Ok(());
     }
 
-    let words = &words_in[0..][..words_in.len().min(3)];
-    let len = words.iter().map(|word| word.len()).sum();
-    let free_chars: Vec<u8> = unique_chrs(words)
+    // Find 3 words
+    let in_words = seek_words(input, 3);
+
+    // Reserve translation scratch area in output
+    let out_len = output.len();
+    output.extend(in_words);
+
+    // Generate list of currently relevant and unset chars
+    let free_chars: Vec<u8> = unique_chars(in_words)
         .into_iter()
         .filter(|c| !chars_set.contains(c - START))
         .collect();
 
     'test: loop {
-        let translated = key.translate(words);
+        key.translate(&mut output[out_len..]);
 
-        if validate(&translated, dict) >= len {
-            let ws: Vec<std::borrow::Cow<str>> = translated
-                .iter()
-                .map(|word| String::from_utf8_lossy(word))
-                .collect();
-            println!("Found likely words \"{}\"", ws.join(" "));
-
-            words_out.extend(translated);
+        if validate(&output[out_len..], dict) >= in_words.len() {
+            println!(
+                "Found likely words \"{}\"",
+                String::from_utf8_lossy(&output[out_len..])
+            );
 
             // Set current key in stone for next round
             free_chars.iter().for_each(|c| chars_set.insert(*c - START));
 
-            if decrypt_words(&words_in[words.len()..], words_out, key, chars_set, dict).is_ok() {
+            if decrypt_words(&input[in_words.len()..], output, key, chars_set, dict).is_ok() {
                 return Ok(());
             }
 
             // Deciphering ahead failed, current assumptions aren't right
-            words_out.pop();
 
             // Clear set characters that weren't previously set in stone before call
             free_chars.iter().for_each(|c| chars_set.remove(*c - START));
         }
+        // Reset translation buffer
+        (&mut output[out_len..]).copy_from_slice(in_words);
 
         // Current key is wrong, try next
+        // for chr in &free_chars {
+        //     print!("{}", char::from(key.table[Key::index(*chr)]));
+        // }
+        // println!();
         for chr in &free_chars {
             match key.attach_next(*chr) {
                 Ok(()) => continue 'test,
@@ -302,6 +262,9 @@ fn decrypt_words(
         break;
     }
 
+    // Failed, so truncate scratch area off
+    output.truncate(output.len() - in_words.len());
+
     Err(())
 }
 
@@ -312,21 +275,17 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error
 
     // Create a list of word slices
     let input = filter_input(input);
-    let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
 
     // Create a key for deciphering
-    let mut key = Key::new(&words);
+    let mut key = Key::new();
 
-    // Allocate output stack
-    let mut words_out = Vec::with_capacity(words.len());
+    // Allocate output
+    let mut output = Vec::with_capacity(input.len());
     let mut chars_set = bitset::U64BitSet::<1>::new();
 
     // Recursive deciphering
-    match decrypt_words(&words, &mut words_out, &mut key, &mut chars_set, &dict) {
-        Ok(()) => {
-            let text = words_out.join(&b' ');
-            Ok(String::from_utf8(text).unwrap())
-        }
+    match decrypt_words(&input, &mut output, &mut key, &mut chars_set, &dict) {
+        Ok(()) => Ok(String::from_utf8(output).unwrap()),
         Err(()) => Ok(String::from_utf8(input).unwrap()),
     }
 }
@@ -424,53 +383,53 @@ mod test {
         assert_eq!(&decrypted, "hello world");
     }
 
-    #[test]
-    fn key_input_frequency_order() {
-        let input = filter_input("aaaaa bbvvvbb oo e");
-        let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
-        let key = Key::new(&words);
-        dbg!(key.input_frequency_order);
-        assert!(matches!(
-            key.input_frequency_order,
-            [b'a', b'b', b'v', b'o', b'e', ..]
-        ));
-    }
+    // #[test]
+    // fn key_input_frequency_order() {
+    //     let input = filter_input("aaaaa bbvvvbb oo e");
+    //     let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
+    //     let key = Key::new(&words);
+    //     dbg!(key.input_frequency_order);
+    //     assert!(matches!(
+    //         key.input_frequency_order,
+    //         [b'a', b'b', b'v', b'o', b'e', ..]
+    //     ));
+    // }
 
-    #[test]
-    fn key_next_in_freq_order_covers_all_for_all() {
-        for start_from in START..=END {
-            let mut values_got = [0; R];
-            let mut current = start_from;
-            values_got[usize::from(current - START)] += 1;
-            while let Some(next) = Key::next_in_freq_order(start_from, current) {
-                current = next.get();
-                println!("Got '{}'", char::from(current));
-                values_got[usize::from(current - START)] += 1;
-            }
-            assert_eq!(values_got, [1; R]);
-        }
-    }
+    // #[test]
+    // fn key_next_in_freq_order_covers_all_for_all() {
+    //     for start_from in START..=END {
+    //         let mut values_got = [0; R];
+    //         let mut current = start_from;
+    //         values_got[usize::from(current - START)] += 1;
+    //         while let Some(next) = Key::next_in_freq_order(start_from, current) {
+    //             current = next.get();
+    //             println!("Got '{}'", char::from(current));
+    //             values_got[usize::from(current - START)] += 1;
+    //         }
+    //         assert_eq!(values_got, [1; R]);
+    //     }
+    // }
 
-    fn assert_key_next_in_freq_order(start: u8, expected: &[u8]) {
-        let mut current = NonZeroU8::new(start).unwrap();
-        for chr in expected {
-            match Key::next_in_freq_order(start, current.get()) {
-                Some(val) => {
-                    current = val;
-                    println!("{} == {}", char::from(current.get()), char::from(*chr));
-                    assert_eq!(current.get(), *chr);
-                }
-                None => {
-                    assert_eq!(*chr, 0);
-                }
-            }
-        }
-    }
+    // fn assert_key_next_in_freq_order(start: u8, expected: &[u8]) {
+    //     let mut current = NonZeroU8::new(start).unwrap();
+    //     for chr in expected {
+    //         match Key::next_in_freq_order(start, current.get()) {
+    //             Some(val) => {
+    //                 current = val;
+    //                 println!("{} == {}", char::from(current.get()), char::from(*chr));
+    //                 assert_eq!(current.get(), *chr);
+    //             }
+    //             None => {
+    //                 assert_eq!(*chr, 0);
+    //             }
+    //         }
+    //     }
+    // }
 
-    #[test]
-    fn key_next_in_freq_order_looks_correct() {
-        assert_key_next_in_freq_order(b'a', b"toen");
-        assert_key_next_in_freq_order(b'o', b"antiehsrd");
-        assert_key_next_in_freq_order(b'b', b"pkyvgjfxcqmzwuldrshinoate\0");
-    }
+    // #[test]
+    // fn key_next_in_freq_order_looks_correct() {
+    //     assert_key_next_in_freq_order(b'a', b"toen");
+    //     assert_key_next_in_freq_order(b'o', b"antiehsrd");
+    //     assert_key_next_in_freq_order(b'b', b"pkyvgjfxcqmzwuldrshinoate\0");
+    // }
 }
