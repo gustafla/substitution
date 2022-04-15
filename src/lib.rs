@@ -21,9 +21,9 @@ use rand::prelude::*;
 use std::io::BufRead;
 
 /// The range of ASCII lowercase letters that will be used in dictionary
-const START: u8 = b'a';
-const END: u8 = b'z';
-const R: trie::AlphabetSize = START.abs_diff(END) as trie::AlphabetSize + 1;
+const START: usize = b'a' as usize;
+const END: usize = b'z' as usize;
+const R: trie::AlphabetSize = START.abs_diff(END) + 1;
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
 /// Leaves out all other characters than ASCII alphabetic and whitespace.
@@ -64,23 +64,12 @@ pub fn encrypt(input: &str) -> String {
     buf
 }
 
-/// Convert bytes from START..=END to indices in 0..R, discarding bytes which aren't in range
-fn bytes_to_key(slice: &[u8]) -> trie::Key<R, u8> {
-    let buf: Vec<u8> = slice
-        .iter()
-        .filter_map(|b| b.checked_sub(START))
-        .filter(|b| *b <= END)
-        .collect();
-    trie::Key::<R, u8>::try_from(buf).unwrap()
-}
-
 /// Read through a dictionary file and insert every word in a trie set
-fn load_dict(from: impl BufRead) -> Result<trie::Set<R>, std::io::Error> {
-    let mut dict = trie::Set::<R>::new();
+fn load_dict(from: impl BufRead) -> Result<trie::Set<R, START>, std::io::Error> {
+    let mut dict = trie::Set::<R, START>::new();
     for word in from.lines() {
         let bytes = filter_input(&word?);
-        let key = bytes_to_key(&bytes);
-        dict.insert(&key);
+        dict.insert(&bytes).unwrap();
     }
     Ok(dict)
 }
@@ -99,7 +88,7 @@ impl Key {
     }
 
     fn index(input: u8) -> usize {
-        usize::from(input - START)
+        usize::from(input) - START
     }
 
     fn attach(&mut self, input: u8, guess: u8) -> Result<(), ()> {
@@ -114,7 +103,7 @@ impl Key {
     }
 
     fn next_in_order(current_guess: u8) -> u8 {
-        if current_guess >= END {
+        if current_guess >= b'z' {
             0
         } else {
             current_guess + 1
@@ -127,7 +116,7 @@ impl Key {
 
         // Do first guess
         if current_guess == 0 {
-            current_guess = START;
+            current_guess = b'a';
             if self.attach(input, current_guess).is_ok() {
                 return Ok(());
             }
@@ -161,12 +150,17 @@ impl Key {
     }
 }
 
-fn validate(text: &[u8], dict: &trie::Set<R>) -> usize {
+fn validate(text: &[u8], dict: &trie::Set<R, START>) -> (usize, usize) {
     let mut score = 0;
-    for word in text.split(u8::is_ascii_whitespace) {
-        score += dict.prefix_score(&bytes_to_key(word));
+    let mut max = 0;
+    for word in text
+        .split(u8::is_ascii_whitespace)
+        .filter(|w| !w.is_empty())
+    {
+        score += dict.prefix_score(word).unwrap();
+        max += word.len() + 1;
     }
-    score
+    (score, max)
 }
 
 fn unique_chars(input: &[u8]) -> Vec<u8> {
@@ -203,14 +197,14 @@ fn decrypt_words(
     output: &mut Vec<u8>,
     key: &mut Key,
     chars_set: &mut bitset::U64BitSet<1>,
-    dict: &trie::Set<R>,
+    dict: &trie::Set<R, START>,
 ) -> Result<(), ()> {
     if input.is_empty() {
         return Ok(());
     }
 
-    // Find 3 words
-    let in_words = seek_words(input, 3);
+    // Find 1 words
+    let in_words = seek_words(input, 1);
 
     // Reserve translation scratch area in output
     let out_len = output.len();
@@ -219,30 +213,27 @@ fn decrypt_words(
     // Generate list of currently relevant and unset chars
     let free_chars: Vec<u8> = unique_chars(in_words)
         .into_iter()
-        .filter(|c| !chars_set.contains(c - START))
+        .filter(|c| !chars_set.contains(c - b'a'))
         .collect();
+
+    // Set input chars in stone for next round so they won't be iterated
+    free_chars.iter().for_each(|c| chars_set.insert(*c - b'a'));
 
     'test: loop {
         key.translate(&mut output[out_len..]);
 
-        if validate(&output[out_len..], dict) >= in_words.len() {
+        let (score, max) = validate(&output[out_len..], dict);
+        if score >= max - 1 {
             println!(
                 "Found likely words \"{}\"",
                 String::from_utf8_lossy(&output[out_len..])
             );
 
-            // Set current key in stone for next round
-            free_chars.iter().for_each(|c| chars_set.insert(*c - START));
-
             if decrypt_words(&input[in_words.len()..], output, key, chars_set, dict).is_ok() {
                 return Ok(());
             }
-
-            // Deciphering ahead failed, current assumptions aren't right
-
-            // Clear set characters that weren't previously set in stone before call
-            free_chars.iter().for_each(|c| chars_set.remove(*c - START));
         }
+
         // Reset translation buffer
         (&mut output[out_len..]).copy_from_slice(in_words);
 
@@ -264,6 +255,9 @@ fn decrypt_words(
 
     // Failed, so truncate scratch area off
     output.truncate(output.len() - in_words.len());
+
+    // Clear set characters so that caller up in the stack can keep iterating it's key
+    free_chars.iter().for_each(|c| chars_set.remove(*c - b'a'));
 
     Err(())
 }
@@ -378,6 +372,22 @@ mod test {
         let decrypted = decrypt(
             &encrypted,
             std::io::BufReader::new("hello\nworld\n".as_bytes()),
+        )
+        .unwrap();
+        assert_eq!(&decrypted, "hello world");
+    }
+
+    #[test]
+    fn decrypt_hello_world_with_red_herrings() {
+        let input: String = "Hello world!".into();
+        let encrypted = encrypt(&input);
+        dbg!(&input);
+        dbg!(&encrypted);
+        let decrypted = decrypt(
+            &encrypted,
+            std::io::BufReader::new(
+                "hello\nworld\nword\nhell\nhey\nwonderful\nforth\nnewly\nbytes\ninput\n".as_bytes(),
+            ),
         )
         .unwrap();
         assert_eq!(&decrypted, "hello world");
