@@ -30,11 +30,11 @@ const R: trie::AlphabetSize = START.abs_diff(END) + 1;
 fn filter_input(input: &str) -> Vec<u8> {
     input
         .chars()
-        .filter_map(|c| {
+        .map(|c| {
             if c.is_ascii_alphabetic() || c.is_ascii_whitespace() {
-                c.to_ascii_lowercase().try_into().ok()
+                c.to_ascii_lowercase().try_into().unwrap_or(b' ')
             } else {
-                None
+                b' '
             }
         })
         .collect()
@@ -67,22 +67,63 @@ pub fn encrypt(input: &str) -> String {
 /// Read through a dictionary file and insert every word in a trie set
 fn load_dict(from: impl BufRead) -> Result<trie::Set<R, START>, std::io::Error> {
     let mut dict = trie::Set::<R, START>::new();
-    for word in from.lines() {
-        let bytes = filter_input(&word?);
-        dict.insert(&bytes).unwrap();
+    for line in from.lines() {
+        let bytes = filter_input(&line?);
+        for word in bytes
+            .split(u8::is_ascii_whitespace)
+            .filter(|w| !w.is_empty())
+        {
+            dict.insert(word).unwrap();
+        }
     }
     Ok(dict)
 }
 
+static ENGLISH_FREQ_ORDER: [u8; R] = [
+    b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c', b'f',
+    b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
+];
+
 struct Key {
     table: [u8; R],
+    started_from: [u8; R],
+    input_freq_order: [u8; R],
+    english_freq_index: [usize; R],
     guesses: bitset::U64BitSet<4>,
 }
 
 impl Key {
-    fn new() -> Self {
+    fn new(input: &[u8]) -> Self {
+        let mut freqs = [0; R];
+        for chr in input.iter().filter(|c| c.is_ascii_alphabetic()) {
+            freqs[usize::from(*chr) - START] += 1;
+        }
+        let mut freqs: Vec<(u8, usize)> = (0u8..)
+            .zip(freqs.iter())
+            .map(|(i, n)| (b'a' + i, *n))
+            .collect();
+        freqs.sort_unstable_by_key(|e| std::cmp::Reverse(e.1));
+        let mut input_freq_order = [0u8; R];
+        for (i, c) in freqs.iter().enumerate() {
+            input_freq_order[i] = c.0;
+        }
+
+        let mut english_freq_index = [0; R];
+        for chr in b'a'..=b'z' {
+            let idx = ENGLISH_FREQ_ORDER
+                .iter()
+                .enumerate()
+                .find(|(_, c)| **c == chr)
+                .unwrap()
+                .0;
+            english_freq_index[usize::from(chr - b'a')] = idx;
+        }
+
         Self {
             table: [0; R],
+            started_from: [0; R],
+            input_freq_order,
+            english_freq_index,
             guesses: bitset::U64BitSet::<4>::new(),
         }
     }
@@ -97,33 +138,60 @@ impl Key {
         }
         let idx = Self::index(input);
         self.guesses.remove(self.table[idx]);
+        if self.table[idx] == 0 {
+            self.started_from[idx] = guess;
+        }
         self.table[idx] = guess;
         self.guesses.insert(guess);
         Ok(())
     }
 
-    fn next_in_order(current_guess: u8) -> u8 {
-        if current_guess >= b'z' {
-            0
-        } else {
-            current_guess + 1
-        }
+    fn next_in_freq_order(&self, start_guess: u8, current_guess: u8) -> u8 {
+        use std::cmp::Ordering;
+        let start_idx = self.english_freq_index[usize::from(start_guess - b'a')];
+        let current_idx = self.english_freq_index[usize::from(current_guess - b'a')];
+        let diff = start_idx.abs_diff(current_idx);
+        let lower = (diff < start_idx).then(|| start_idx - diff - 1);
+        let higher = (start_idx + diff < R).then(|| start_idx + diff);
+        let idx = match (current_idx.cmp(&start_idx), lower, higher) {
+            (Ordering::Less, _, Some(idx))
+            | (Ordering::Less, Some(idx), None)
+            | (Ordering::Equal | Ordering::Greater, Some(idx), _) => idx,
+            (Ordering::Equal | Ordering::Greater, None, Some(idx)) => {
+                if idx + 1 < R {
+                    idx + 1
+                } else {
+                    return 0;
+                }
+            }
+            _ => return 0,
+        };
+        ENGLISH_FREQ_ORDER[idx]
     }
 
     fn attach_next(&mut self, input: u8) -> Result<(), ()> {
         let idx = Self::index(input);
-        let mut current_guess = self.table[idx];
 
-        // Do first guess
-        if current_guess == 0 {
-            current_guess = b'a';
-            if self.attach(input, current_guess).is_ok() {
-                return Ok(());
+        let (start_guess, mut current_guess) = match self.table[idx] {
+            0 => {
+                let freq_index = self
+                    .input_freq_order
+                    .iter()
+                    .enumerate()
+                    .find(|(_, c)| **c == input)
+                    .unwrap()
+                    .0;
+                let first_guess = ENGLISH_FREQ_ORDER[freq_index];
+                if self.attach(input, first_guess).is_ok() {
+                    return Ok(());
+                }
+                (first_guess, first_guess)
             }
+            current_guess => (self.started_from[idx], current_guess),
         };
 
         while {
-            current_guess = Self::next_in_order(current_guess);
+            current_guess = self.next_in_freq_order(start_guess, current_guess);
             if current_guess == 0 {
                 return Err(());
             }
@@ -175,17 +243,14 @@ fn unique_chars(input: &[u8]) -> Vec<u8> {
     uc
 }
 
-fn seek_words(from: &[u8], mut count: usize) -> &[u8] {
+fn seek_word(from: &[u8]) -> &[u8] {
     let mut trim_start = true;
     for i in 0..from.len() {
         if from[i].is_ascii_whitespace() {
             if trim_start {
                 continue;
             }
-            count -= 1;
-            if count == 0 {
-                return &from[..i];
-            }
+            return &from[..i];
         }
         trim_start = false;
     }
@@ -199,19 +264,20 @@ fn decrypt_words(
     chars_set: &mut bitset::U64BitSet<1>,
     dict: &trie::Set<R, START>,
 ) -> Result<(), ()> {
-    if input.is_empty() {
+    // Find 1 word
+    let in_word = seek_word(input);
+
+    // Happy path end for recursion
+    if in_word.is_empty() {
         return Ok(());
     }
 
-    // Find 1 words
-    let in_words = seek_words(input, 1);
-
     // Reserve translation scratch area in output
     let out_len = output.len();
-    output.extend(in_words);
+    output.extend(in_word);
 
     // Generate list of currently relevant and unset chars
-    let free_chars: Vec<u8> = unique_chars(in_words)
+    let free_chars: Vec<u8> = unique_chars(in_word)
         .into_iter()
         .filter(|c| !chars_set.contains(c - b'a'))
         .collect();
@@ -223,19 +289,23 @@ fn decrypt_words(
         key.translate(&mut output[out_len..]);
 
         let (score, max) = validate(&output[out_len..], dict);
-        if score >= max - 1 {
-            println!(
+        let treshold = match max {
+            0..=4 => max,
+            _ => max - 1,
+        };
+        if score >= treshold {
+            /*println!(
                 "Found likely words \"{}\"",
                 String::from_utf8_lossy(&output[out_len..])
-            );
+            );*/
 
-            if decrypt_words(&input[in_words.len()..], output, key, chars_set, dict).is_ok() {
+            if decrypt_words(&input[in_word.len()..], output, key, chars_set, dict).is_ok() {
                 return Ok(());
             }
         }
 
         // Reset translation buffer
-        (&mut output[out_len..]).copy_from_slice(in_words);
+        (&mut output[out_len..]).copy_from_slice(in_word);
 
         // Current key is wrong, try next
         // for chr in &free_chars {
@@ -254,7 +324,7 @@ fn decrypt_words(
     }
 
     // Failed, so truncate scratch area off
-    output.truncate(output.len() - in_words.len());
+    output.truncate(output.len() - in_word.len());
 
     // Clear set characters so that caller up in the stack can keep iterating it's key
     free_chars.iter().for_each(|c| chars_set.remove(*c - b'a'));
@@ -271,7 +341,7 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error
     let input = filter_input(input);
 
     // Create a key for deciphering
-    let mut key = Key::new();
+    let mut key = Key::new(&input);
 
     // Allocate output
     let mut output = Vec::with_capacity(input.len());
@@ -292,7 +362,7 @@ mod test {
 
     #[test]
     fn filter_input_keeps_ascii_alphabetic_and_whitespace() {
-        assert_eq!(filter_input("hello, world! 😊".into()), b"hello world ");
+        assert_eq!(filter_input("hello, world! 😊".into()), b"hello  world   ");
     }
 
     #[test]
@@ -306,7 +376,7 @@ mod test {
         dbg!(&input);
         let out = encrypt(&input);
         dbg!(&out);
-        assert_eq!(out.len(), input.len() - 1);
+        assert_eq!(out.len(), input.len());
     }
 
     /// Counts how many times each possible value occurs in `of`.
@@ -374,12 +444,12 @@ mod test {
             std::io::BufReader::new("hello\nworld\n".as_bytes()),
         )
         .unwrap();
-        assert_eq!(&decrypted, "hello world");
+        assert_eq!(&decrypted, "hello world ");
     }
 
     #[test]
     fn decrypt_hello_world_with_red_herrings() {
-        let input: String = "Hello world!".into();
+        let input: String = "  Hello    world! ".into();
         let encrypted = encrypt(&input);
         dbg!(&input);
         dbg!(&encrypted);
@@ -390,56 +460,57 @@ mod test {
             ),
         )
         .unwrap();
-        assert_eq!(&decrypted, "hello world");
+        assert_eq!(&decrypted, "  hello    world  ");
     }
 
-    // #[test]
-    // fn key_input_frequency_order() {
-    //     let input = filter_input("aaaaa bbvvvbb oo e");
-    //     let words: Vec<&[u8]> = input.split(u8::is_ascii_whitespace).collect();
-    //     let key = Key::new(&words);
-    //     dbg!(key.input_frequency_order);
-    //     assert!(matches!(
-    //         key.input_frequency_order,
-    //         [b'a', b'b', b'v', b'o', b'e', ..]
-    //     ));
-    // }
+    #[test]
+    fn key_input_frequency_order() {
+        let input = filter_input("aaaaa bbvvvbb oo e");
+        let key = Key::new(&input);
+        dbg!(key.input_freq_order);
+        assert!(matches!(
+            key.input_freq_order,
+            [b'a', b'b', b'v', b'o', b'e', ..]
+        ));
+    }
 
-    // #[test]
-    // fn key_next_in_freq_order_covers_all_for_all() {
-    //     for start_from in START..=END {
-    //         let mut values_got = [0; R];
-    //         let mut current = start_from;
-    //         values_got[usize::from(current - START)] += 1;
-    //         while let Some(next) = Key::next_in_freq_order(start_from, current) {
-    //             current = next.get();
-    //             println!("Got '{}'", char::from(current));
-    //             values_got[usize::from(current - START)] += 1;
-    //         }
-    //         assert_eq!(values_got, [1; R]);
-    //     }
-    // }
+    #[test]
+    fn key_next_in_freq_order_covers_all_for_all() {
+        for start_from in b'a'..=b'z' {
+            let mut values_got = [0; R];
+            let mut current = start_from;
+            let dummy = Key::new(b"");
+            while {
+                println!("Got '{}'", char::from(current));
+                values_got[usize::from(current - b'a')] += 1;
+                current = dummy.next_in_freq_order(start_from, current);
+                current != 0
+            } {}
+            assert_eq!(values_got, [1; R]);
+        }
+    }
 
-    // fn assert_key_next_in_freq_order(start: u8, expected: &[u8]) {
-    //     let mut current = NonZeroU8::new(start).unwrap();
-    //     for chr in expected {
-    //         match Key::next_in_freq_order(start, current.get()) {
-    //             Some(val) => {
-    //                 current = val;
-    //                 println!("{} == {}", char::from(current.get()), char::from(*chr));
-    //                 assert_eq!(current.get(), *chr);
-    //             }
-    //             None => {
-    //                 assert_eq!(*chr, 0);
-    //             }
-    //         }
-    //     }
-    // }
+    fn assert_key_next_in_freq_order(start: u8, expected: &[u8]) {
+        let mut current = start;
+        let dummy = Key::new(b"");
+        for chr in expected {
+            match dummy.next_in_freq_order(start, current) {
+                0 => {
+                    assert_eq!(*chr, 0);
+                }
+                val => {
+                    current = val;
+                    println!("{} == {}", char::from(current), char::from(*chr));
+                    assert_eq!(current, *chr);
+                }
+            }
+        }
+    }
 
-    // #[test]
-    // fn key_next_in_freq_order_looks_correct() {
-    //     assert_key_next_in_freq_order(b'a', b"toen");
-    //     assert_key_next_in_freq_order(b'o', b"antiehsrd");
-    //     assert_key_next_in_freq_order(b'b', b"pkyvgjfxcqmzwuldrshinoate\0");
-    // }
+    #[test]
+    fn key_next_in_freq_order_looks_correct() {
+        assert_key_next_in_freq_order(b'a', b"toen");
+        assert_key_next_in_freq_order(b'o', b"antiehsrd");
+        assert_key_next_in_freq_order(b'b', b"pkyvgjfxcqmzwuldrshinoate\0");
+    }
 }
