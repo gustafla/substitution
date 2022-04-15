@@ -88,6 +88,7 @@ struct Key {
     table: [u8; R],
     started_from: [u8; R],
     input_freq_order: [u8; R],
+    input_freq_index: [usize; R],
     english_freq_index: [usize; R],
     guesses: bitset::U64BitSet<4>,
 }
@@ -108,6 +109,17 @@ impl Key {
             input_freq_order[i] = c.0;
         }
 
+        let mut input_freq_index = [0; R];
+        for chr in b'a'..=b'z' {
+            let idx = input_freq_order
+                .iter()
+                .enumerate()
+                .find(|(_, c)| **c == chr)
+                .unwrap()
+                .0;
+            input_freq_index[usize::from(chr - b'a')] = idx;
+        }
+
         let mut english_freq_index = [0; R];
         for chr in b'a'..=b'z' {
             let idx = ENGLISH_FREQ_ORDER
@@ -123,6 +135,7 @@ impl Key {
             table: [0; R],
             started_from: [0; R],
             input_freq_order,
+            input_freq_index,
             english_freq_index,
             guesses: bitset::U64BitSet::<4>::new(),
         }
@@ -174,13 +187,7 @@ impl Key {
 
         let (start_guess, mut current_guess) = match self.table[idx] {
             0 => {
-                let freq_index = self
-                    .input_freq_order
-                    .iter()
-                    .enumerate()
-                    .find(|(_, c)| **c == input)
-                    .unwrap()
-                    .0;
+                let freq_index = self.input_freq_index[usize::from(input - b'a')];
                 let first_guess = ENGLISH_FREQ_ORDER[freq_index];
                 if self.attach(input, first_guess).is_ok() {
                     return Ok(());
