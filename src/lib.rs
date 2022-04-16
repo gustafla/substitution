@@ -189,15 +189,17 @@ impl Key {
 }
 
 /// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
-/// Replaces all other characters than ASCII alphabetic and whitespace with spaces.
+/// Replaces dashes with spaces and leaves out everything else.
 fn filter_input(input: &str) -> Vec<u8> {
     input
         .chars()
-        .map(|c| {
+        .filter_map(|c| {
             if c.is_ascii_alphabetic() || c.is_ascii_whitespace() {
-                c.to_ascii_lowercase().try_into().unwrap_or(b' ')
+                c.to_ascii_lowercase().try_into().ok()
+            } else if c == '-' {
+                Some(b' ')
             } else {
-                b' '
+                None
             }
         })
         .collect()
@@ -390,7 +392,7 @@ mod test {
 
     #[test]
     fn filter_input_keeps_ascii_alphabetic_and_whitespace() {
-        assert_eq!(filter_input("hello, world! 😊".into()), b"hello  world   ");
+        assert_eq!(filter_input("hello, world! 😊".into()), b"hello world ");
     }
 
     #[test]
@@ -404,7 +406,7 @@ mod test {
         dbg!(&input);
         let out = encrypt(&input);
         dbg!(&out);
-        assert_eq!(out.len(), input.len());
+        assert_eq!(out.len(), input.len() - 1);
     }
 
     /// Counts how many times each possible value occurs in `of`.
@@ -472,7 +474,7 @@ mod test {
             std::io::BufReader::new("hello\nworld\n".as_bytes()),
         )
         .unwrap();
-        assert_eq!(&decrypted, "hello world ");
+        assert_eq!(&decrypted, "hello world");
     }
 
     #[test]
@@ -488,7 +490,7 @@ mod test {
             ),
         )
         .unwrap();
-        assert_eq!(&decrypted, "  hello    world  ");
+        assert_eq!(&decrypted, "  hello    world ");
     }
 
     #[test]
@@ -504,7 +506,7 @@ mod test {
             ),
         )
         .unwrap();
-        assert_eq!(&decrypted, "hello all worlds ");
+        assert_eq!(&decrypted, "hello all worlds");
     }
 
     #[test]
