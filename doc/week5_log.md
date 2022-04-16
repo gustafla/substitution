@@ -35,3 +35,7 @@ Next I think I can optimize by going through the input words in length order.
 I need to try different strategies.
 
 I also need to write more documentation.
+
+## 2022-04-16, 3h
+
+I wrote docs. I believe the project is currently in good shape to be reviewed.
