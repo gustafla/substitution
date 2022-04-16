@@ -14,7 +14,7 @@ categories = ["cryptography"]
 opt-level = 3
 
 [profile.test]
-opt-level = 3
+opt-level = 0
 
 [dependencies]
 color-eyre = "0.6.1"
