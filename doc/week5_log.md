@@ -23,3 +23,15 @@ I played around with the decoding code but did not get the pieces together yet.
 
 I tried a recursive approach. I'm thinking of ditching the frequency order
 for a simpler brute force.
+
+## 2022-04-15, 8h
+
+I got the recursive approach to work but also reintroduced the frequency order
+as it was clearly much faster. I'm now starting to see results but the
+deciphers can still take a long time. I also cleaned up the codebase a little,
+but I feel it's still somewhat messy.
+
+Next I think I can optimize by going through the input words in length order.
+I need to try different strategies.
+
+I also need to write more documentation.
