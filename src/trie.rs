@@ -156,11 +156,6 @@ impl<const R: AlphabetSize, const B: usize> Set<R, B> {
         self.trie.insert(key, ())
     }
 
-    /// Returns true if the value (key) has been inserted, otherwise false
-    pub fn contains<E: KeyElement>(&self, key: &[E]) -> Result<bool, Error> {
-        Ok(self.trie.prefix(key)?.1.is_some())
-    }
-
     /// Returns `key.len() + 1` if the value (key) has been inserted, otherwise found prefix length
     pub fn prefix_score<E: KeyElement>(&self, key: &[E]) -> Result<usize, Error> {
         let (len, ins) = self.trie.prefix(key)?;
@@ -176,7 +171,7 @@ mod test {
     fn no_insertion_not_contained() {
         const R: AlphabetSize = 128;
         let set = Set::<R, 0>::new();
-        assert!(!set.contains(b"hello").unwrap())
+        assert_eq!(set.prefix_score(b"hello").unwrap(), 0);
     }
 
     #[test]
@@ -184,7 +179,7 @@ mod test {
         const R: AlphabetSize = 128;
         let mut set = Set::<R, 0>::new();
         set.insert(b"hello").unwrap();
-        assert!(set.contains(b"hello").unwrap())
+        assert_eq!(set.prefix_score(b"hello").unwrap(), 6)
     }
 
     #[test]
@@ -192,7 +187,7 @@ mod test {
         const R: AlphabetSize = 128;
         let mut set = Set::<R, 0>::new();
         set.insert(b"hello").unwrap();
-        assert!(!set.contains(b"hell").unwrap())
+        assert_eq!(set.prefix_score(b"hell").unwrap(), 4)
     }
 
     #[test]
@@ -225,10 +220,10 @@ mod test {
             set.insert(key).unwrap();
         }
         for key in &false_keys {
-            assert!(!set.contains(key).unwrap())
+            assert_ne!(set.prefix_score(key).unwrap(), key.len() + 1);
         }
         for key in &keys {
-            assert!(set.contains(key).unwrap())
+            assert_eq!(set.prefix_score(key).unwrap(), key.len() + 1);
         }
     }
 

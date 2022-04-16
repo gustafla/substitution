@@ -9,6 +9,8 @@
 #![deny(clippy::all)]
 // Warnings from pedantic clippy lints
 #![warn(clippy::pedantic)]
+// This library should not panic so docs about it aren't required
+#![allow(clippy::missing_panics_doc)]
 // Warnings about missing Cargo.toml fields
 #![warn(clippy::cargo)]
 // More about lint levels https://doc.rust-lang.org/rustc/lints/levels.html
@@ -21,130 +23,86 @@ use rand::prelude::*;
 use std::io::BufRead;
 
 /// The range of ASCII lowercase letters that will be used in dictionary
-const START: usize = b'a' as usize;
-const END: usize = b'z' as usize;
-const R: trie::AlphabetSize = START.abs_diff(END) + 1;
+const START: u8 = b'a';
+const END: u8 = b'z';
+const R: trie::AlphabetSize = START.abs_diff(END) as trie::AlphabetSize + 1;
 
-/// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
-/// Leaves out all other characters than ASCII alphabetic and whitespace.
-fn filter_input(input: &str) -> Vec<u8> {
-    input
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphabetic() || c.is_ascii_whitespace() {
-                c.to_ascii_lowercase().try_into().unwrap_or(b' ')
-            } else {
-                b' '
-            }
-        })
-        .collect()
-}
-
-/// Encrypts the string provided from CLI with a randomly generated substitution cipher.
-#[must_use]
-pub fn encrypt(input: &str) -> String {
-    let input = filter_input(input);
-
-    // Create a random substitution
-    let mut cipher: Vec<u8> = (b'a'..=b'z').collect();
-    let mut rng = rand::thread_rng();
-    cipher.shuffle(&mut rng);
-
-    // Encrypt
-    let mut buf = String::with_capacity(input.len());
-    for word in input.split(u8::is_ascii_whitespace) {
-        for cchar in word.iter().map(|c| cipher[*c as usize - b'a' as usize]) {
-            buf.push(cchar.into());
-        }
-        buf.push(' ');
-    }
-
-    // Remove trailing space. TODO, encrypt input in-place
-    buf.pop();
-    buf
-}
-
-/// Read through a dictionary file and insert every word in a trie set
-fn load_dict(from: impl BufRead) -> Result<trie::Set<R, START>, std::io::Error> {
-    let mut dict = trie::Set::<R, START>::new();
-    for line in from.lines() {
-        let bytes = filter_input(&line?);
-        for word in bytes
-            .split(u8::is_ascii_whitespace)
-            .filter(|w| !w.is_empty())
-        {
-            dict.insert(word).unwrap();
-        }
-    }
-    Ok(dict)
-}
-
-static ENGLISH_FREQ_ORDER: [u8; R] = [
-    b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c', b'f',
-    b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
-];
-
+/// Key that stores details about an encryption or decryption process
 struct Key {
     table: [u8; R],
     started_from: [u8; R],
-    input_freq_order: [u8; R],
     input_freq_index: [usize; R],
-    english_freq_index: [usize; R],
-    guesses: bitset::U64BitSet<4>,
+    lang_freq_index: [usize; R],
+    lang_freq_order: [u8; R],
+    guesses: bitset::BitSet64<4>,
 }
 
 impl Key {
-    fn new(input: &[u8]) -> Self {
+    /// Create a random substitution key that can be used to encrypt a plaintext input
+    fn random() -> Self {
+        let mut table: Vec<u8> = (START..=END).collect();
+        let mut rng = rand::thread_rng();
+        table.shuffle(&mut rng);
+        Self {
+            table: table.try_into().unwrap(),
+            started_from: [0; R],
+            input_freq_index: [0; R],
+            lang_freq_index: [0; R],
+            lang_freq_order: [0; R],
+            guesses: bitset::BitSet64::<4>::new(),
+        }
+    }
+
+    /// Create an uninitialized substitution key that can be used to search for the correct key during decryption
+    fn new(input: &[u8], lang_freq_order: [u8; R]) -> Self {
+        // Count input characters
         let mut freqs = [0; R];
         for chr in input.iter().filter(|c| c.is_ascii_alphabetic()) {
-            freqs[usize::from(*chr) - START] += 1;
+            freqs[usize::from(*chr - START)] += 1;
         }
-        let mut freqs: Vec<(u8, usize)> = (0u8..)
-            .zip(freqs.iter())
-            .map(|(i, n)| (b'a' + i, *n))
-            .collect();
+        // Sort by frequency
+        let mut freqs: Vec<(u8, &usize)> = (START..).zip(freqs.iter()).collect();
         freqs.sort_unstable_by_key(|e| std::cmp::Reverse(e.1));
-        let mut input_freq_order = [0u8; R];
-        for (i, c) in freqs.iter().enumerate() {
-            input_freq_order[i] = c.0;
-        }
-
+        // Create a table for each input character's frequency index
         let mut input_freq_index = [0; R];
-        for chr in b'a'..=b'z' {
-            let idx = input_freq_order
+        for chr in START..=END {
+            let idx = freqs
                 .iter()
                 .enumerate()
-                .find(|(_, c)| **c == chr)
+                .find(|(_, (c, _))| *c == chr)
                 .unwrap()
                 .0;
-            input_freq_index[usize::from(chr - b'a')] = idx;
+            input_freq_index[usize::from(chr - START)] = idx;
         }
 
-        let mut english_freq_index = [0; R];
-        for chr in b'a'..=b'z' {
-            let idx = ENGLISH_FREQ_ORDER
+        // Create a table for each language character's frequency index
+        let mut lang_freq_index = [0; R];
+        for chr in START..=END {
+            let idx = lang_freq_order
                 .iter()
                 .enumerate()
                 .find(|(_, c)| **c == chr)
                 .unwrap()
                 .0;
-            english_freq_index[usize::from(chr - b'a')] = idx;
+            lang_freq_index[usize::from(chr - START)] = idx;
         }
 
         Self {
             table: [0; R],
             started_from: [0; R],
-            input_freq_order,
             input_freq_index,
-            english_freq_index,
-            guesses: bitset::U64BitSet::<4>::new(),
+            lang_freq_index,
+            lang_freq_order,
+            guesses: bitset::BitSet64::<4>::new(),
         }
     }
 
+    /// ASCII character's table lookup index
     fn index(input: u8) -> usize {
-        usize::from(input) - START
+        usize::from(input - START)
     }
 
+    /// Set a guess for a given input character
     fn attach(&mut self, input: u8, guess: u8) -> Result<(), ()> {
         if self.guesses.contains(guess) {
             return Err(());
@@ -159,10 +117,11 @@ impl Key {
         Ok(())
     }
 
+    /// Get the next character in language frequency order
     fn next_in_freq_order(&self, start_guess: u8, current_guess: u8) -> u8 {
         use std::cmp::Ordering;
-        let start_idx = self.english_freq_index[usize::from(start_guess - b'a')];
-        let current_idx = self.english_freq_index[usize::from(current_guess - b'a')];
+        let start_idx = self.lang_freq_index[usize::from(start_guess - START)];
+        let current_idx = self.lang_freq_index[usize::from(current_guess - START)];
         let diff = start_idx.abs_diff(current_idx);
         let lower = (diff < start_idx).then(|| start_idx - diff - 1);
         let higher = (start_idx + diff < R).then(|| start_idx + diff);
@@ -179,16 +138,17 @@ impl Key {
             }
             _ => return 0,
         };
-        ENGLISH_FREQ_ORDER[idx]
+        self.lang_freq_order[idx]
     }
 
+    /// Set a next guess in language frequency order for input character
     fn attach_next(&mut self, input: u8) -> Result<(), ()> {
         let idx = Self::index(input);
 
         let (start_guess, mut current_guess) = match self.table[idx] {
             0 => {
-                let freq_index = self.input_freq_index[usize::from(input - b'a')];
-                let first_guess = ENGLISH_FREQ_ORDER[freq_index];
+                let freq_index = self.input_freq_index[usize::from(input - START)];
+                let first_guess = self.lang_freq_order[freq_index];
                 if self.attach(input, first_guess).is_ok() {
                     return Ok(());
                 }
@@ -207,12 +167,15 @@ impl Key {
         Ok(())
     }
 
+    /// Remove the current guess from a given input character
     fn clear(&mut self, input: u8) {
         let idx = Self::index(input);
         self.guesses.remove(self.table[idx]);
         self.table[idx] = 0;
     }
 
+    /// Replace characters in text according to current key state.
+    /// In other words, perform the substitution. Encrypt or decrypt.
     fn translate(&self, text: &mut [u8]) {
         for c in text {
             if c.is_ascii_alphabetic() {
@@ -225,7 +188,38 @@ impl Key {
     }
 }
 
-fn validate(text: &[u8], dict: &trie::Set<R, START>) -> (usize, usize) {
+/// Substitutes uppercase ASCII alphabetic (A-Z) characters with lowercase equivalents.
+/// Replaces all other characters than ASCII alphabetic and whitespace with spaces.
+fn filter_input(input: &str) -> Vec<u8> {
+    input
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphabetic() || c.is_ascii_whitespace() {
+                c.to_ascii_lowercase().try_into().unwrap_or(b' ')
+            } else {
+                b' '
+            }
+        })
+        .collect()
+}
+
+/// Encrypts the string provided from CLI with a randomly generated substitution cipher.
+#[must_use]
+pub fn encrypt(input: &str) -> String {
+    let mut input = filter_input(input);
+
+    // Create a random substitution
+    let key = Key::random();
+
+    // Encrypt
+    key.translate(&mut input);
+
+    String::from_utf8(input).unwrap()
+}
+
+/// Test if text matches well with the dictionary.
+/// Returns a tuple `(given_score, max_score)`.
+fn validate(text: &[u8], dict: &trie::Set<R, { START as usize }>) -> (usize, usize) {
     let mut score = 0;
     let mut max = 0;
     for word in text
@@ -238,9 +232,10 @@ fn validate(text: &[u8], dict: &trie::Set<R, START>) -> (usize, usize) {
     (score, max)
 }
 
+/// Returns a list of all unique alphabetic characters in input.
 fn unique_chars(input: &[u8]) -> Vec<u8> {
     let mut uc = Vec::with_capacity(16);
-    let mut set = bitset::U64BitSet::<4>::new();
+    let mut set = bitset::BitSet64::<4>::new();
     for c in input {
         if c.is_ascii_alphabetic() && !set.contains(*c) {
             uc.push(*c);
@@ -250,26 +245,28 @@ fn unique_chars(input: &[u8]) -> Vec<u8> {
     uc
 }
 
-fn seek_word(from: &[u8]) -> &[u8] {
+/// Find the next word
+fn seek_word(input: &[u8]) -> &[u8] {
     let mut trim_start = true;
-    for i in 0..from.len() {
-        if from[i].is_ascii_whitespace() {
+    for i in 0..input.len() {
+        if input[i].is_ascii_whitespace() {
             if trim_start {
                 continue;
             }
-            return &from[..i];
+            return &input[..i];
         }
         trim_start = false;
     }
-    from
+    input
 }
 
+/// Recursive backtracking deciphering word by word
 fn decrypt_words(
     input: &[u8],
     output: &mut Vec<u8>,
     key: &mut Key,
-    chars_set: &mut bitset::U64BitSet<1>,
-    dict: &trie::Set<R, START>,
+    chars_set: &mut bitset::BitSet64<1>,
+    dict: &trie::Set<R, { START as usize }>,
 ) -> Result<(), ()> {
     // Find 1 word
     let in_word = seek_word(input);
@@ -286,11 +283,11 @@ fn decrypt_words(
     // Generate list of currently relevant and unset chars
     let free_chars: Vec<u8> = unique_chars(in_word)
         .into_iter()
-        .filter(|c| !chars_set.contains(c - b'a'))
+        .filter(|c| !chars_set.contains(c - START))
         .collect();
 
     // Set input chars in stone for next round so they won't be iterated
-    free_chars.iter().for_each(|c| chars_set.insert(*c - b'a'));
+    free_chars.iter().for_each(|c| chars_set.insert(*c - START));
 
     'test: loop {
         key.translate(&mut output[out_len..]);
@@ -334,12 +331,36 @@ fn decrypt_words(
     output.truncate(output.len() - in_word.len());
 
     // Clear set characters so that caller up in the stack can keep iterating it's key
-    free_chars.iter().for_each(|c| chars_set.remove(*c - b'a'));
+    free_chars.iter().for_each(|c| chars_set.remove(*c - START));
 
     Err(())
 }
 
+/// Read through a dictionary file and insert every word in a trie set
+fn load_dict(from: impl BufRead) -> Result<trie::Set<R, { START as usize }>, std::io::Error> {
+    let mut dict = trie::Set::<R, { START as usize }>::new();
+    for line in from.lines() {
+        let bytes = filter_input(&line?);
+        for word in bytes
+            .split(u8::is_ascii_whitespace)
+            .filter(|w| !w.is_empty())
+        {
+            dict.insert(word).unwrap();
+        }
+    }
+    Ok(dict)
+}
+
+static ENGLISH_FREQ_ORDER: [u8; R] = [
+    b'e', b't', b'a', b'o', b'n', b'i', b'h', b's', b'r', b'd', b'l', b'u', b'w', b'm', b'c', b'f',
+    b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
+];
+
 /// Deciphers the string provided from CLI using statistics about english language.
+///
+/// # Errors
+///
+/// `std::io::Error` will be returned if `dict` file fails to read.
 pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error> {
     // Create a dictionary of words
     let dict = load_dict(dict)?;
@@ -348,11 +369,11 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error
     let input = filter_input(input);
 
     // Create a key for deciphering
-    let mut key = Key::new(&input);
+    let mut key = Key::new(&input, ENGLISH_FREQ_ORDER);
 
     // Allocate output
     let mut output = Vec::with_capacity(input.len());
-    let mut chars_set = bitset::U64BitSet::<1>::new();
+    let mut chars_set = bitset::BitSet64::<1>::new();
 
     // Recursive deciphering
     match decrypt_words(&input, &mut output, &mut key, &mut chars_set, &dict) {
@@ -473,23 +494,24 @@ mod test {
     #[test]
     fn key_input_frequency_order() {
         let input = filter_input("aaaaa bbvvvbb oo e");
-        let key = Key::new(&input);
-        dbg!(key.input_freq_order);
-        assert!(matches!(
-            key.input_freq_order,
-            [b'a', b'b', b'v', b'o', b'e', ..]
-        ));
+        let key = Key::new(&input, ENGLISH_FREQ_ORDER);
+
+        assert_eq!(key.input_freq_index[usize::from(b'a' - START)], 0);
+        assert_eq!(key.input_freq_index[usize::from(b'b' - START)], 1);
+        assert_eq!(key.input_freq_index[usize::from(b'v' - START)], 2);
+        assert_eq!(key.input_freq_index[usize::from(b'o' - START)], 3);
+        assert_eq!(key.input_freq_index[usize::from(b'e' - START)], 4);
     }
 
     #[test]
     fn key_next_in_freq_order_covers_all_for_all() {
-        for start_from in b'a'..=b'z' {
+        for start_from in START..=END {
             let mut values_got = [0; R];
             let mut current = start_from;
-            let dummy = Key::new(b"");
+            let dummy = Key::new(b"", ENGLISH_FREQ_ORDER);
             while {
                 println!("Got '{}'", char::from(current));
-                values_got[usize::from(current - b'a')] += 1;
+                values_got[usize::from(current - START)] += 1;
                 current = dummy.next_in_freq_order(start_from, current);
                 current != 0
             } {}
@@ -499,7 +521,7 @@ mod test {
 
     fn assert_key_next_in_freq_order(start: u8, expected: &[u8]) {
         let mut current = start;
-        let dummy = Key::new(b"");
+        let dummy = Key::new(b"", ENGLISH_FREQ_ORDER);
         for chr in expected {
             match dummy.next_in_freq_order(start, current) {
                 0 => {
