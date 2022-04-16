@@ -251,7 +251,7 @@ fn decrypt_words<'a>(
     key: &mut Key,
     chars_set: &mut bitset::BitSet64<1>,
     dict: &trie::Set<R, { START as usize }>,
-    skip_words: &mut std::collections::HashSet<&'a [u8]>,
+    skip_words: &mut Vec<&'a [u8]>,
     can_skip: usize,
 ) -> Result<(), ()> {
     // Happy path end for recursion
@@ -263,7 +263,7 @@ fn decrypt_words<'a>(
     let word = words[0];
 
     // Check if this word should be skipped for now
-    if skip_words.contains(word) {
+    if skip_words.contains(&word) {
         // Proceed to next
         if decrypt_words(
             &words[1..],
@@ -336,7 +336,7 @@ fn decrypt_words<'a>(
     if can_skip > 0 {
         #[cfg(debug_assertions)]
         eprintln!("Trying to skip",);
-        skip_words.insert(word);
+        skip_words.push(word);
         // Proceed to next, skipping current
         if decrypt_words(
             &words[1..],
@@ -351,7 +351,7 @@ fn decrypt_words<'a>(
         {
             return Ok(());
         }
-        skip_words.remove(word);
+        skip_words.pop();
         #[cfg(debug_assertions)]
         eprintln!("Failed, backtracking");
     }
@@ -414,8 +414,8 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, Error> {
     // Allocate support structures for decryption
     let mut scratch = vec![0; input.len()];
     let mut chars_set = bitset::BitSet64::<1>::new();
-    let mut skip_words = std::collections::HashSet::<&[u8]>::new();
     let can_skip = words.len() / 10;
+    let mut skip_words = Vec::with_capacity(can_skip);
     #[cfg(debug_assertions)]
     eprintln!("Can skip {can_skip} words");
 
