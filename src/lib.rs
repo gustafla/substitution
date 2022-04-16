@@ -231,21 +231,6 @@ pub fn encrypt(input: &str) -> String {
     String::from_utf8(input).unwrap()
 }
 
-/// Test if text matches well with the dictionary.
-/// Returns a tuple `(given_score, max_score)`.
-fn validate(text: &[u8], dict: &trie::Set<R, { START as usize }>) -> (usize, usize) {
-    let mut score = 0;
-    let mut max = 0;
-    for word in text
-        .split(u8::is_ascii_whitespace)
-        .filter(|w| !w.is_empty())
-    {
-        score += dict.prefix_score(word).unwrap();
-        max += word.len() + 1;
-    }
-    (score, max)
-}
-
 /// Returns a list of all unique alphabetic characters in input.
 fn unique_chars(input: &[u8]) -> Vec<u8> {
     let mut uc = Vec::with_capacity(16);
@@ -259,43 +244,44 @@ fn unique_chars(input: &[u8]) -> Vec<u8> {
     uc
 }
 
-/// Find the next word
-fn seek_word(input: &[u8]) -> &[u8] {
-    let mut trim_start = true;
-    for i in 0..input.len() {
-        if input[i].is_ascii_whitespace() {
-            if trim_start {
-                continue;
-            }
-            return &input[..i];
-        }
-        trim_start = false;
-    }
-    input
-}
-
 /// Recursive backtracking deciphering word by word
-fn decrypt_words(
-    input: &[u8],
-    output: &mut Vec<u8>,
+fn decrypt_words<'a>(
+    words: &[&'a [u8]],
+    scratch: &mut [u8],
     key: &mut Key,
     chars_set: &mut bitset::BitSet64<1>,
     dict: &trie::Set<R, { START as usize }>,
+    skip_words: &mut std::collections::HashSet<&'a [u8]>,
+    can_skip: usize,
 ) -> Result<(), ()> {
-    // Find 1 word
-    let in_word = seek_word(input);
-
     // Happy path end for recursion
-    if in_word.is_empty() {
+    if words.is_empty() {
         return Ok(());
     }
 
-    // Reserve translation scratch area in output
-    let out_len = output.len();
-    output.extend(in_word);
+    // Create a convenience binding for current input word
+    let word = words[0];
 
-    // Generate list of currently relevant and unset chars
-    let free_chars: Vec<u8> = unique_chars(in_word)
+    // Check if this word should be skipped for now
+    if skip_words.contains(word) {
+        // Proceed to next
+        if decrypt_words(
+            &words[1..],
+            scratch,
+            key,
+            chars_set,
+            dict,
+            skip_words,
+            can_skip,
+        )
+        .is_ok()
+        {
+            return Ok(());
+        }
+    }
+
+    // Generate list of currently relevant and unset chars in input
+    let free_chars: Vec<u8> = unique_chars(word)
         .into_iter()
         .filter(|c| !chars_set.contains(c - START))
         .collect();
@@ -304,32 +290,37 @@ fn decrypt_words(
     free_chars.iter().for_each(|c| chars_set.insert(*c - START));
 
     'test: loop {
-        key.translate(&mut output[out_len..]);
+        // Set input word to scratch
+        (&mut scratch[..word.len()]).copy_from_slice(word);
 
-        let (score, max) = validate(&output[out_len..], dict);
-        let treshold = match max {
-            0..=4 => max,
-            _ => max - 1,
-        };
-        if score >= treshold {
-            /*println!(
-                "Found likely words \"{}\"",
-                String::from_utf8_lossy(&output[out_len..])
-            );*/
+        // Try to translate by current key state
+        key.translate(&mut scratch[..word.len()]);
 
-            if decrypt_words(&input[in_word.len()..], output, key, chars_set, dict).is_ok() {
+        // Check the validity of the attempt
+        let score = dict.prefix_score(&scratch[..word.len()]).unwrap();
+        if score == word.len() + 1 {
+            #[cfg(debug_assertions)]
+            eprintln!(
+                "Found likely word \"{}\"",
+                String::from_utf8_lossy(&scratch[..word.len()])
+            );
+
+            // Proceed to next without skipping current
+            if decrypt_words(
+                &words[1..],
+                scratch,
+                key,
+                chars_set,
+                dict,
+                skip_words,
+                can_skip,
+            )
+            .is_ok()
+            {
                 return Ok(());
             }
         }
 
-        // Reset translation buffer
-        (&mut output[out_len..]).copy_from_slice(in_word);
-
-        // Current key is wrong, try next
-        // for chr in &free_chars {
-        //     print!("{}", char::from(key.table[Key::index(*chr)]));
-        // }
-        // println!();
         for chr in &free_chars {
             match key.attach_next(*chr) {
                 Ok(()) => continue 'test,
@@ -341,8 +332,29 @@ fn decrypt_words(
         break;
     }
 
-    // Failed, so truncate scratch area off
-    output.truncate(output.len() - in_word.len());
+    // Key exhausted but it's possible that this word is not in the dictionary, try skipping
+    if can_skip > 0 {
+        #[cfg(debug_assertions)]
+        eprintln!("Trying to skip",);
+        skip_words.insert(word);
+        // Proceed to next, skipping current
+        if decrypt_words(
+            &words[1..],
+            scratch,
+            key,
+            chars_set,
+            dict,
+            skip_words,
+            can_skip - 1,
+        )
+        .is_ok()
+        {
+            return Ok(());
+        }
+        skip_words.remove(word);
+        #[cfg(debug_assertions)]
+        eprintln!("Failed, backtracking");
+    }
 
     // Clear set characters so that caller up in the stack can keep iterating it's key
     free_chars.iter().for_each(|c| chars_set.remove(*c - START));
@@ -370,28 +382,57 @@ static ENGLISH_FREQ_ORDER: [u8; R] = [
     b'g', b'y', b'p', b'b', b'k', b'v', b'j', b'x', b'q', b'z',
 ];
 
-/// Deciphers the string provided from CLI using statistics about english language.
+/// Deciphers the string `input` using brute force, statistics about english language and given dictionary `dict`.
 ///
 /// # Errors
 ///
 /// See [`enum@Error`].
 pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, Error> {
-    // Create a dictionary of words
+    // Create a dictionary of valid words
     let dict = load_dict(dict)?;
 
-    // Create a list of word slices
-    let input = filter_input(input);
+    // Create a list of input words
+    let mut input = filter_input(input);
+    let words: Vec<&[u8]> = input
+        .split(u8::is_ascii_whitespace)
+        .filter(|word| !word.is_empty())
+        .collect();
+
+    // Associate each input word with it's number of unique characters and sort by distance from the sweet spot
+    let mut words: Vec<(&[u8], usize)> = words
+        .iter()
+        .map(|word| (*word, unique_chars(word).len()))
+        .collect();
+    words.sort_unstable_by_key(|(_, len)| len.abs_diff(7));
+
+    // Clean up the words array again, now in descending length order
+    let words: Vec<_> = words.iter().map(|(word, _)| *word).collect();
 
     // Create a key for deciphering
     let mut key = Key::new(&input, ENGLISH_FREQ_ORDER);
 
-    // Allocate output
-    let mut output = Vec::with_capacity(input.len());
+    // Allocate support structures for decryption
+    let mut scratch = vec![0; input.len()];
     let mut chars_set = bitset::BitSet64::<1>::new();
+    let mut skip_words = std::collections::HashSet::<&[u8]>::new();
+    let can_skip = words.len() / 10;
+    #[cfg(debug_assertions)]
+    eprintln!("Can skip {can_skip} words");
 
     // Recursive deciphering
-    match decrypt_words(&input, &mut output, &mut key, &mut chars_set, &dict) {
-        Ok(()) => Ok(String::from_utf8(output).unwrap()),
+    match decrypt_words(
+        &words,
+        &mut scratch,
+        &mut key,
+        &mut chars_set,
+        &dict,
+        &mut skip_words,
+        can_skip,
+    ) {
+        Ok(()) => {
+            key.translate(&mut input);
+            Ok(String::from_utf8(input).unwrap())
+        }
         Err(()) => Err(Error::SearchExhausted),
     }
 }

@@ -27,7 +27,10 @@ brute force backtrack in the expected order or frequency has been implemented an
 
 ## Current known limitations and issues:
 
-- Unoptimal order of attack, decryption is slow if text doesn't start with
-  uncommon patterns of has lots of common patterns.
-- Inflexibility around words that are unknown to the dictionary.
-  Such unknown words block the rest of the text from decrypting.
+- ~~Unoptimal order of attack, decryption is slow if text doesn't start with
+  uncommon patterns of has lots of common patterns.~~
+- ~~Inflexibility around words that are unknown to the dictionary.
+  Such unknown words block the rest of the text from decrypting.~~
+  
+Both limitations have been worked around. Some inputs still take way too long
+but the average case is getting really good.

@@ -36,6 +36,19 @@ I need to try different strategies.
 
 I also need to write more documentation.
 
-## 2022-04-16, 3h
+## 2022-04-16, 5h
 
 I wrote docs. I believe the project is currently in good shape to be reviewed.
+
+... And I couldn't resist partycoding at [Instanssi](https://instanssi.org) and
+I managed to improve the smarts of the decipher by a whole lot.
+
+Processing input words in order of number of unique characters nearest to
+7 (so that key permutations are 26^7 = 8 billion) turns out to be a pretty
+good strategy.
+
+I also added functionality to skip 10% of input words because not everything is
+in the dictionary.
+
+Next I want to benchmark and write docs about benchmarking. And also do my peer
+review.
