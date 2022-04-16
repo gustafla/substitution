@@ -13,6 +13,18 @@ While the project has technically met all requirements and estimates from
 the [specification](specification.md), it is still inflexible and far
 from optimal in performance.
 
+## Example invocation
+
+```
+echo 'brute force backtrack in the expected order or frequency has been implemented and seems to work in some cases' | cargo run encrypt | cargo run decrypt
+```
+
+Output:
+
+```
+brute force backtrack in the expected order or frequency has been implemented and seems to gork in some cases
+```
+
 ## Current known limitations and issues:
 
 - Unoptimal order of attack, decryption is slow if text doesn't start with
