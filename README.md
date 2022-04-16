@@ -36,6 +36,11 @@ To run the program, run `cargo run`. Command line arguments to the
 application can be supplied after `--`, for example
 `cargo run -- encrypt`.
 
+A dictionary file is needed. The default option is `/usr/share/dict/words`
+but it can be changed with `--dictionary`.
+If you run Arch Linux, install the package `words`.
+If you run Ubuntu, install the package `wamerican` or `wbritish`.
+
 ## Source code documentation
 
 Source documentation is implemented with
