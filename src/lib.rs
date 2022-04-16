@@ -492,6 +492,22 @@ mod test {
     }
 
     #[test]
+    fn decrypt_3_words() {
+        let input: String = "Hello all worlds!".into();
+        let encrypted = encrypt(&input);
+        dbg!(&input);
+        dbg!(&encrypted);
+        let decrypted = decrypt(
+            &encrypted,
+            std::io::BufReader::new(
+                "hello\nworld\nword\nhell\nhey\nwonderful\nforth\nnewly\nbytes\ninput\nall\nali\nworlds\n".as_bytes(),
+            ),
+        )
+        .unwrap();
+        assert_eq!(&decrypted, "hello all worlds ");
+    }
+
+    #[test]
     fn key_input_frequency_order() {
         let input = filter_input("aaaaa bbvvvbb oo e");
         let key = Key::new(&input, ENGLISH_FREQ_ORDER);
