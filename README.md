@@ -5,6 +5,8 @@
 
 [Specification (määrittelydokumentti)](doc/specification.md)
 
+[Implementation (toteutusdokumentti)](doc/implementation.md)
+
 ## Weekly logs / viikkoraportit
 
 - [Week 1](doc/week1_log.md)
@@ -62,11 +64,12 @@ upload the [results](https://codecov.io/gh/gustafla/substitution) to
 codecov.io.
 
 The test suite consists of unit tests for library functions ([lib.rs](src/lib.rs)).
-Every function has at least one corresponding unit test. The encyption and decryption
-functions are tested with short sentences, longer texts and also really long (100000
-characters) randomly generated texts. The encryption function has tests for output
-length and frequency profile, and the decryption function currently only has a test
-for output length.
+Every function should have at least one corresponding unit test.
+The encyption and decryption functions are tested with short sentences, longer
+texts and also really long (100000 characters) randomly generated texts. The
+encryption function has tests for output length and frequency profile, and
+the decryption function currently only has a few tests for short inputs and
+small dictionaries.
 
 ## Linting and style
 
