@@ -563,6 +563,20 @@ mod test {
     }
 
     #[test]
+    fn decrypt_10_simple_words() {
+        let input: String = "HHHH aaa aaaaa ii ttt uuuuuu aaa gggggg tt yyy".into();
+        let encrypted = encrypt(&input);
+        dbg!(&input);
+        dbg!(&encrypted);
+        let decrypted = decrypt(
+            &encrypted,
+            std::io::BufReader::new("hhhh\naaa\nii\nttt\nuuuuuu\ngggggg\ntt\nyyy\n".as_bytes()),
+        )
+        .unwrap();
+        assert_eq!(&decrypted, "hhhh aaa aaaaa ii ttt uuuuuu aaa gggggg tt yyy");
+    }
+
+    #[test]
     fn key_input_frequency_order() {
         let input = filter_input("aaaaa bbvvvbb oo e");
         let key = Key::new(&input, ENGLISH_FREQ_ORDER);
