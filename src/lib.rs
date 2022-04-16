@@ -21,6 +21,18 @@ mod trie;
 
 use rand::prelude::*;
 use std::io::BufRead;
+use thiserror::Error;
+
+/// Errors that can result from failed decryption
+#[derive(Error, Debug)]
+pub enum Error {
+    /// IO Error while parsing dictionary
+    #[error("Failed to load dictionary")]
+    LoadDictionary(#[from] std::io::Error),
+    /// The entire search space has been iterated through but text doesn't match dictionary well enough
+    #[error("Search exhausted. Insufficient dictionary?")]
+    SearchExhausted,
+}
 
 /// The range of ASCII lowercase letters that will be used in dictionary
 const START: u8 = b'a';
@@ -362,8 +374,8 @@ static ENGLISH_FREQ_ORDER: [u8; R] = [
 ///
 /// # Errors
 ///
-/// `std::io::Error` will be returned if `dict` file fails to read.
-pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error> {
+/// See [`enum@Error`].
+pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, Error> {
     // Create a dictionary of words
     let dict = load_dict(dict)?;
 
@@ -380,7 +392,7 @@ pub fn decrypt(input: &str, dict: impl BufRead) -> Result<String, std::io::Error
     // Recursive deciphering
     match decrypt_words(&input, &mut output, &mut key, &mut chars_set, &dict) {
         Ok(()) => Ok(String::from_utf8(output).unwrap()),
-        Err(()) => Ok(String::from_utf8(input).unwrap()),
+        Err(()) => Err(Error::SearchExhausted),
     }
 }
 
