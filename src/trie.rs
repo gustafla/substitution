@@ -94,6 +94,9 @@ impl<const R: AlphabetSize, const B: usize, T> Trie<R, B, T> {
     }
 
     /// Insert a value into the trie
+    ///
+    /// ## Sources
+    /// [https://en.wikipedia.org/wiki/Trie#Insertion]
     pub fn insert<E: KeyElement>(&mut self, key: &[E], value: T) -> Result<(), Error> {
         let mut node = 0; // Root node index
 
@@ -120,6 +123,9 @@ impl<const R: AlphabetSize, const B: usize, T> Trie<R, B, T> {
     }
 
     /// Retrieve value for given key and tell how long prefix is contained in trie
+    ///
+    /// ## Sources
+    /// [https://en.wikipedia.org/wiki/Trie#Searching]
     pub fn prefix<E: KeyElement>(&self, key: &[E]) -> Result<(usize, &Option<T>), Error> {
         let mut node = 0; // Root node index
         let mut depth = 0;

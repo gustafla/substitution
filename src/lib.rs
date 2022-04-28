@@ -15,7 +15,7 @@
 #![warn(clippy::cargo)]
 // More about lint levels https://doc.rust-lang.org/rustc/lints/levels.html
 
-// "Include" trie.rs
+// "Include" bitset.rs and trie.rs
 mod bitset;
 mod trie;
 
@@ -132,16 +132,31 @@ impl Key {
     /// Get the next character in language frequency order
     fn next_in_freq_order(&self, start_guess: u8, current_guess: u8) -> u8 {
         use std::cmp::Ordering;
+
+        // Indices into the alphabet table where the guess started and is currently at
         let start_idx = self.lang_freq_index[usize::from(start_guess - START)];
         let current_idx = self.lang_freq_index[usize::from(current_guess - START)];
+
+        // Geometric distance between the two indices on the index number line
         let diff = start_idx.abs_diff(current_idx);
+
+        // Some next lower index, or None if out of bounds
         let lower = (diff < start_idx).then(|| start_idx - diff - 1);
+
+        // Some next higher index, or None if out of bounds
         let higher = (start_idx + diff < R).then(|| start_idx + diff);
+
+        // Determine the following index to choose
         let idx = match (current_idx.cmp(&start_idx), lower, higher) {
+            // If currently left of start index on the number line, pick higher/right option if available
             (Ordering::Less, _, Some(idx))
+            // If currently lower than started from, but no higher option, pick lower one
             | (Ordering::Less, Some(idx), None)
+            // If currently at start or higher/right of start, pick lower if available
             | (Ordering::Equal | Ordering::Greater, Some(idx), _) => idx,
+            // If currently at start of higher/right of start, but no lower/left option available, pick right/higher
             (Ordering::Equal | Ordering::Greater, None, Some(idx)) => {
+                // But increment by one because we're currently already at the position
                 if idx + 1 < R {
                     idx + 1
                 } else {
@@ -157,6 +172,7 @@ impl Key {
     fn attach_next(&mut self, input: u8) -> Result<(), ()> {
         let idx = Self::index(input);
 
+        // Make a first guess if needed, or just load the previous/current guess and it's starting point
         let (start_guess, mut current_guess) = match self.table[idx] {
             0 => {
                 let freq_index = self.input_freq_index[usize::from(input - START)];
@@ -174,6 +190,7 @@ impl Key {
             if current_guess == 0 {
                 return Err(());
             }
+            // Try attaching a next guess for as long as it fails
             self.attach(input, current_guess).is_err()
         } {}
         Ok(())
@@ -564,16 +581,19 @@ mod test {
 
     #[test]
     fn decrypt_10_simple_words() {
-        let input: String = "HHHH aaa aaaaa ii ttt uuuuuu aaa gggggg tt yyy".into();
+        let input: String = "HHHH aaa aaaaa ii t uuuuuu aaa ggggggg t yyyyyyyy".into();
         let encrypted = encrypt(&input);
         dbg!(&input);
         dbg!(&encrypted);
         let decrypted = decrypt(
             &encrypted,
-            std::io::BufReader::new("hhhh\naaa\nii\nttt\nuuuuuu\ngggggg\ntt\nyyy\n".as_bytes()),
+            std::io::BufReader::new("hhhh\naaa\nii\nt\nuuuuuu\nggggggg\nyyyyyyyy\n".as_bytes()),
         )
         .unwrap();
-        assert_eq!(&decrypted, "hhhh aaa aaaaa ii ttt uuuuuu aaa gggggg tt yyy");
+        assert_eq!(
+            &decrypted,
+            "hhhh aaa aaaaa ii t uuuuuu aaa ggggggg t yyyyyyyy"
+        );
     }
 
     #[test]
