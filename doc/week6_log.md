@@ -1,6 +1,6 @@
 # Week 6 Report
 
-## 2022-04-28, 1h
+## 2022-04-28, 1h 30min
 
 I wrote a peer review for other student's project. I added some comments which
 describe the decryption related function logic and fixed a flaky test.
@@ -23,3 +23,9 @@ There are several sort of "tickets" that I could work on next.
   
 - Get a Github action for release build binaries to work again, preferably
   a custom one as the previously used one didn't keep up to date with Rust.
+  
+- Performance testing. I don't exactly understand what it means in this context.
+  Benchmarks need a baseline which comparison can be made with.
+  Maybe I should compare this program to similar ones that can be found online?
+  Also inter-commit performance testing is possible but would require
+  non-trivial effort to implement.
