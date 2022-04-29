@@ -29,3 +29,7 @@ There are several sort of "tickets" that I could work on next.
   Maybe I should compare this program to similar ones that can be found online?
   Also inter-commit performance testing is possible but would require
   non-trivial effort to implement.
+  
+## 2022-04-29, 30m
+
+I read my peer review and wrote better usage instructions to README.md
