@@ -25,16 +25,34 @@ build and test system. Code coverage is currently generated using
 The command line interface starts from [main.rs](src/main.rs) (`fn main()`) and
 the business logic and unit tests reside in [lib.rs](src/lib.rs).
 
-## Building and running
+## Building, running and usage
 
 To run the program, run `cargo run`. Command line arguments to the
 application can be supplied after `--`, for example
-`cargo run -- encrypt`. See `cargo run -- --help` for usage and options.
+`cargo run -- encrypt`. See `cargo run -- --help` for all options.
 
 A dictionary file is needed. The default option is `/usr/share/dict/words`
 but it can be changed with `--dictionary`.
 If you run Arch Linux, install the package `words`.
 If you run Ubuntu, install the package `wamerican` or `wbritish`.
+
+To test the program end-to-end with an ad hoc input, you can use an oneliner:
+
+```
+echo 'my text' | cargo run -- encrypt | cargo run -- decrypt
+```
+
+10-30 common english words works best for now.
+To generate ad hoc text encrypted text, you can use a shell command such as
+`echo 'my text' | cargo run -- encrypt`. If you want to encrypt a text file
+(such as this README.md), you can run `cargo run -- encrypt README.md`.
+Note that the key (substitution table) is generated randomly, but kept secret by
+the program!
+
+When you have encrypted/scrambled text, you're ready to try decrypting it.
+The encrypted input can be provided via stdin:
+`cargo run -- decrypt < encrypted.txt`,
+or by reading from a file: `cargo run -- decrypt encrypted.txt`
 
 To build a (best performance) release binary, run `cargo build --release`.
 The output goes to `target/release/substitution`.
